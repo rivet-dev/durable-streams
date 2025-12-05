@@ -1,11 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
-    "allowJs": true,
     "allowSyntheticDefaultImports": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
-    "checkJs": true,
     "declaration": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -29,9 +27,14 @@
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "examples/**/*.ts",
-    "examples/**/*.tsx",
-    "*.config.ts",
-    "packages/*/*.config.ts"
+    "examples/**/*.tsx"
   ],
-  "exclude": ["node_modules", "**/dist/**", "**/build/**"]
+  "exclude": [
+    "node_modules",
+    "**/dist/**",
+    "**/build/**",
+    "**/*.config.ts",
+    "**/test/**",
+    "**/*.test.ts"
+  ]
 }

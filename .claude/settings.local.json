@@ -11,7 +11,8 @@
       "Bash(pnpm test:run:*)",
       "Bash(pnpm lint:*)",
       "Bash(pnpm lint:fix:*)",
-      "Bash(gh org list:*)"
+      "Bash(gh org list:*)",
+      "Bash(pnpm typecheck:*)"
     ],
     "deny": [],
     "ask": []

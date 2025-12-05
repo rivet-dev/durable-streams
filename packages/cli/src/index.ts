@@ -128,7 +128,7 @@ async function main() {
         printUsage()
         process.exit(1)
       }
-      await createStream(args[1])
+      await createStream(args[1]!)
       break
     }
 
@@ -138,7 +138,7 @@ async function main() {
         printUsage()
         process.exit(1)
       }
-      const streamId = args[1]
+      const streamId = args[1]!
       const content = args.slice(2).join(` `)
 
       // Check if stdin is being piped
@@ -164,7 +164,7 @@ async function main() {
         printUsage()
         process.exit(1)
       }
-      await readStream(args[1])
+      await readStream(args[1]!)
       break
     }
 
@@ -174,7 +174,7 @@ async function main() {
         printUsage()
         process.exit(1)
       }
-      await deleteStream(args[1])
+      await deleteStream(args[1]!)
       break
     }
 

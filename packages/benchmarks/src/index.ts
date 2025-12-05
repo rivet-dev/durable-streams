@@ -31,12 +31,12 @@ function recordResult(name: string, value: number, unit: string) {
 
 function calculateStats(values: Array<number>) {
   const sorted = [...values].sort((a, b) => a - b)
-  const min = sorted[0]
-  const max = sorted[sorted.length - 1]
+  const min = sorted[0]!
+  const max = sorted[sorted.length - 1]!
   const mean = values.reduce((a, b) => a + b, 0) / values.length
-  const p50 = sorted[Math.floor(sorted.length * 0.5)]
-  const p75 = sorted[Math.floor(sorted.length * 0.75)]
-  const p99 = sorted[Math.floor(sorted.length * 0.99)]
+  const p50 = sorted[Math.floor(sorted.length * 0.5)]!
+  const p75 = sorted[Math.floor(sorted.length * 0.75)]!
+  const p99 = sorted[Math.floor(sorted.length * 0.99)]!
   return { min, max, mean, p50, p75, p99 }
 }
 
