@@ -22,7 +22,9 @@ export interface ConformanceTestOptions {
  * Run the full conformance test suite against a server
  */
 export function runConformanceTests(options: ConformanceTestOptions): void {
-  const { baseUrl } = options
+  // Access options.baseUrl directly instead of destructuring to support
+  // mutable config objects (needed for dynamic port assignment)
+  const getBaseUrl = () => options.baseUrl
 
   // ============================================================================
   // Basic Stream Operations
@@ -32,11 +34,11 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should create a stream`, async () => {
       const streamPath = `/v1/stream/create-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
-      expect(stream.url).toBe(`${baseUrl}${streamPath}`)
+      expect(stream.url).toBe(`${getBaseUrl()}${streamPath}`)
     })
 
     test(`should allow idempotent create with same config`, async () => {
@@ -44,13 +46,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Create first stream
       await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
       // Create again with same config - should succeed (idempotent)
       await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
     })
@@ -60,14 +62,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Create with text/plain
       await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
       // Try to create with different content type - should fail
       await expect(
         DurableStream.create({
-          url: `${baseUrl}${streamPath}`,
+          url: `${getBaseUrl()}${streamPath}`,
           contentType: `application/json`,
         })
       ).rejects.toThrow()
@@ -77,7 +79,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/delete-test-${Date.now()}`
 
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -91,33 +93,33 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/delete-recreate-test-${Date.now()}`
 
       // Create stream and append data
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `old data`,
       })
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: ` more old data`,
       })
 
       // Verify old data exists
-      const readOld = await fetch(`${baseUrl}${streamPath}`, {
+      const readOld = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const oldText = await readOld.text()
       expect(oldText).toBe(`old data more old data`)
 
       // Delete the stream
-      const deleteResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const deleteResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `DELETE`,
       })
       expect(deleteResponse.status).toBe(204)
 
       // Immediately recreate at same URL with different data
-      const recreateResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const recreateResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `new data`,
@@ -125,7 +127,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(recreateResponse.status).toBe(201)
 
       // Read the new stream - should only see new data, not old
-      const readNew = await fetch(`${baseUrl}${streamPath}`, {
+      const readNew = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const newText = await readNew.text()
@@ -136,14 +138,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(readNew.headers.get(STREAM_UP_TO_DATE_HEADER)).toBe(`true`)
 
       // Append to the new stream to verify it's fully functional
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: ` appended`,
       })
 
       // Read again and verify
-      const finalRead = await fetch(`${baseUrl}${streamPath}`, {
+      const finalRead = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const finalText = await finalRead.text()
@@ -159,7 +161,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should append string data`, async () => {
       const streamPath = `/v1/stream/append-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -173,7 +175,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should append multiple chunks`, async () => {
       const streamPath = `/v1/stream/multi-append-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -189,7 +191,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should enforce sequence ordering with seq`, async () => {
       const streamPath = `/v1/stream/seq-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -209,7 +211,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should read empty stream`, async () => {
       const streamPath = `/v1/stream/read-empty-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -222,7 +224,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should read stream with data`, async () => {
       const streamPath = `/v1/stream/read-data-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -238,7 +240,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should read from offset`, async () => {
       const streamPath = `/v1/stream/read-offset-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -262,7 +264,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should wait for new data with long-poll`, async () => {
       const streamPath = `/v1/stream/longpoll-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -296,7 +298,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return immediately if data already exists`, async () => {
       const streamPath = `/v1/stream/longpoll-immediate-test-${Date.now()}`
       const stream = await DurableStream.create({
-        url: `${baseUrl}${streamPath}`,
+        url: `${getBaseUrl()}${streamPath}`,
         contentType: `text/plain`,
       })
 
@@ -319,7 +321,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return correct headers on PUT`, async () => {
       const streamPath = `/v1/stream/put-headers-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -335,14 +337,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/duplicate-put-test-${Date.now()}`
 
       // First PUT
-      const firstResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const firstResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
       expect(firstResponse.status).toBe(201)
 
       // Second PUT with same config should succeed
-      const secondResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const secondResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
@@ -353,13 +355,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/config-conflict-test-${Date.now()}`
 
       // First PUT with text/plain
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Second PUT with different content type should fail
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/json` },
       })
@@ -371,13 +373,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/post-headers-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append data
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `hello world`,
@@ -390,7 +392,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return 404 on POST to non-existent stream`, async () => {
       const streamPath = `/v1/stream/post-404-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `data`,
@@ -403,13 +405,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/content-type-mismatch-test-${Date.now()}`
 
       // Create with text/plain
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Try to append with application/json - protocol allows 400 or 409
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `application/json` },
         body: `{}`,
@@ -422,14 +424,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/get-headers-test-${Date.now()}`
 
       // Create and add data
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test data`,
       })
 
       // Read data
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -449,13 +451,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/get-empty-test-${Date.now()}`
 
       // Create empty stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Read empty stream
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -471,21 +473,21 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/get-offset-test-${Date.now()}`
 
       // Create with data
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `first`,
       })
 
       // Append more
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `second`,
       })
 
       // Get the first offset (after "first")
-      const firstResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const firstResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const firstText = await firstResponse.text()
@@ -493,18 +495,18 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Now create fresh and read from middle offset
       const streamPath2 = `/v1/stream/get-offset-test2-${Date.now()}`
-      await fetch(`${baseUrl}${streamPath2}`, {
+      await fetch(`${getBaseUrl()}${streamPath2}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `first`,
       })
-      const middleResponse = await fetch(`${baseUrl}${streamPath2}`, {
+      const middleResponse = await fetch(`${getBaseUrl()}${streamPath2}`, {
         method: `GET`,
       })
       const middleOffset = middleResponse.headers.get(STREAM_OFFSET_HEADER)
 
       // Append more
-      await fetch(`${baseUrl}${streamPath2}`, {
+      await fetch(`${getBaseUrl()}${streamPath2}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `second`,
@@ -512,7 +514,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Read from the middle offset
       const response = await fetch(
-        `${baseUrl}${streamPath2}?offset=${middleOffset}`,
+        `${getBaseUrl()}${streamPath2}?offset=${middleOffset}`,
         {
           method: `GET`,
         }
@@ -526,7 +528,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return 404 on DELETE non-existent stream`, async () => {
       const streamPath = `/v1/stream/delete-404-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `DELETE`,
       })
 
@@ -537,20 +539,20 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/delete-success-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Delete it
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `DELETE`,
       })
 
       expect(response.status).toBe(204)
 
       // Verify it's gone
-      const readResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const readResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       expect(readResponse.status).toBe(404)
@@ -560,13 +562,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/seq-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with seq 001
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -576,7 +578,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       })
 
       // Append with seq 002
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -586,7 +588,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       })
 
       // Try to append with seq 001 (regression) - should fail
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -602,13 +604,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/seq-lexicographic-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with seq "2"
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -619,7 +621,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Try to append with seq "10" - should fail (lexicographically "10" < "2")
       // A numeric implementation would incorrectly accept this (10 > 2)
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -635,13 +637,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/seq-padded-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with seq "09"
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -651,7 +653,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       })
 
       // Append with seq "10" - should succeed (lexicographically "10" > "09")
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -667,13 +669,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/seq-duplicate-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with seq "001"
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -683,7 +685,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       })
 
       // Try to append with same seq "001" - should fail
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -704,7 +706,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject both TTL and Expires-At (400)`, async () => {
       const streamPath = `/v1/stream/ttl-expires-conflict-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -719,7 +721,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject invalid TTL (non-integer)`, async () => {
       const streamPath = `/v1/stream/ttl-invalid-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -733,7 +735,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject negative TTL`, async () => {
       const streamPath = `/v1/stream/ttl-negative-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -747,7 +749,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should accept valid TTL`, async () => {
       const streamPath = `/v1/stream/ttl-valid-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -761,7 +763,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should accept valid Expires-At`, async () => {
       const streamPath = `/v1/stream/expires-valid-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -782,13 +784,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/case-content-type-test-${Date.now()}`
 
       // Create with lowercase content-type
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with mixed case - should succeed
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `TEXT/PLAIN` },
         body: `test`,
@@ -801,14 +803,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/case-idempotent-test-${Date.now()}`
 
       // Create with lowercase
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/json` },
       })
       expect(response1.status).toBe(201)
 
       // PUT again with uppercase - should be idempotent
-      const response2 = await fetch(`${baseUrl}${streamPath}`, {
+      const response2 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `APPLICATION/JSON` },
       })
@@ -819,13 +821,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/case-header-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with different header casing (lowercase)
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "content-type": `text/plain`,
@@ -847,13 +849,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/content-type-enforcement-test-${Date.now()}`
 
       // Create with text/plain
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Try to append with application/json - protocol allows 400 or 409
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `application/json` },
         body: `{"test": true}`,
@@ -866,13 +868,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/content-type-match-test-${Date.now()}`
 
       // Create with application/json
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/json` },
       })
 
       // Append with same content-type - should succeed
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `application/json` },
         body: `{"test": true}`,
@@ -885,14 +887,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/content-type-get-test-${Date.now()}`
 
       // Create with application/json
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/json` },
         body: `{"initial": true}`,
       })
 
       // Read and verify content-type
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -910,14 +912,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/head-test-${Date.now()}`
 
       // Create stream with data
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test data`,
       })
 
       // HEAD request
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
 
@@ -933,7 +935,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return 404 for non-existent stream`, async () => {
       const streamPath = `/v1/stream/head-404-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
 
@@ -944,27 +946,27 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/head-offset-test-${Date.now()}`
 
       // Create empty stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // HEAD should show initial offset
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
       const offset1 = response1.headers.get(STREAM_OFFSET_HEADER)
       expect(offset1).toBeDefined()
 
       // Append data
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
       })
 
       // HEAD should show updated offset
-      const response2 = await fetch(`${baseUrl}${streamPath}`, {
+      const response2 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
       const offset2 = response2.headers.get(STREAM_OFFSET_HEADER)
@@ -981,13 +983,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject malformed offset (contains comma)`, async () => {
       const streamPath = `/v1/stream/offset-comma-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}?offset=0,1`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}?offset=0,1`, {
         method: `GET`,
       })
 
@@ -997,13 +999,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject offset with spaces`, async () => {
       const streamPath = `/v1/stream/offset-spaces-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}?offset=0 1`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}?offset=0 1`, {
         method: `GET`,
       })
 
@@ -1014,20 +1016,20 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/resumable-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append chunk 1
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `chunk1`,
       })
 
       // Read chunk 1
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const text1 = await response1.text()
@@ -1037,7 +1039,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(offset1).toBeDefined()
 
       // Append chunk 2
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `chunk2`,
@@ -1045,7 +1047,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Read from offset1 - should only get chunk2
       const response2 = await fetch(
-        `${baseUrl}${streamPath}?offset=${offset1}`,
+        `${getBaseUrl()}${streamPath}?offset=${offset1}`,
         {
           method: `GET`,
         }
@@ -1059,21 +1061,21 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/tail-read-test-${Date.now()}`
 
       // Create stream with data
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
       })
 
       // Read all data
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const tailOffset = response1.headers.get(STREAM_OFFSET_HEADER)
 
       // Read from tail offset - should return empty with up-to-date
       const response2 = await fetch(
-        `${baseUrl}${streamPath}?offset=${tailOffset}`,
+        `${getBaseUrl()}${streamPath}?offset=${tailOffset}`,
         {
           method: `GET`,
         }
@@ -1095,13 +1097,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/empty-append-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Try to append empty body - should fail
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: ``,
@@ -1115,7 +1117,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const initialData = `initial stream content`
 
       // Create stream with initial content
-      const putResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const putResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: initialData,
@@ -1126,7 +1128,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(nextOffset).toBeDefined()
 
       // Verify we can read the initial content
-      const getResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const getResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -1139,14 +1141,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/immutability-test-${Date.now()}`
 
       // Create and append first chunk
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `chunk1`,
       })
 
       // Read and save the offset after chunk1
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const text1 = await response1.text()
@@ -1154,13 +1156,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(text1).toBe(`chunk1`)
 
       // Append more chunks
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `chunk2`,
       })
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `chunk3`,
@@ -1168,7 +1170,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Read from the saved offset - should still get chunk2 (position is immutable)
       const response2 = await fetch(
-        `${baseUrl}${streamPath}?offset=${offset1}`,
+        `${getBaseUrl()}${streamPath}?offset=${offset1}`,
         {
           method: `GET`,
         }
@@ -1181,7 +1183,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/monotonic-offset-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
@@ -1190,7 +1192,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Append multiple chunks and collect offsets
       for (let i = 0; i < 5; i++) {
-        const response = await fetch(`${baseUrl}${streamPath}`, {
+        const response = await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `POST`,
           headers: { "Content-Type": `text/plain` },
           body: `chunk${i}`,
@@ -1210,13 +1212,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject empty offset parameter`, async () => {
       const streamPath = `/v1/stream/empty-offset-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}?offset=`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}?offset=`, {
         method: `GET`,
       })
 
@@ -1226,15 +1228,18 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject multiple offset parameters`, async () => {
       const streamPath = `/v1/stream/multi-offset-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}?offset=a&offset=b`, {
-        method: `GET`,
-      })
+      const response = await fetch(
+        `${getBaseUrl()}${streamPath}?offset=a&offset=b`,
+        {
+          method: `GET`,
+        }
+      )
 
       expect(response.status).toBe(400)
     })
@@ -1242,13 +1247,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should enforce case-sensitive seq ordering`, async () => {
       const streamPath = `/v1/stream/case-seq-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append with seq "a" (lowercase)
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1259,7 +1264,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Try to append with seq "B" (uppercase) - should fail
       // Lexicographically: "B" < "a" in byte order (uppercase comes before lowercase in ASCII)
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1276,23 +1281,17 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Create binary stream with various byte values including 0x00 and 0xFF
       const binaryData = new Uint8Array([
-        0x00,
-        0x01,
-        0x02,
-        0x7f,
-        0x80,
-        0xfe,
-        0xff,
+        0x00, 0x01, 0x02, 0x7f, 0x80, 0xfe, 0xff,
       ])
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/octet-stream` },
         body: binaryData,
       })
 
       // Read back and verify byte-for-byte
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -1308,7 +1307,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return Location header on 201`, async () => {
       const streamPath = `/v1/stream/location-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
@@ -1316,20 +1315,20 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(response.status).toBe(201)
       const location = response.headers.get(`location`)
       expect(location).toBeDefined()
-      expect(location).toBe(`${baseUrl}${streamPath}`)
+      expect(location).toBe(`${getBaseUrl()}${streamPath}`)
     })
 
     test(`should reject missing Content-Type on POST`, async () => {
       const streamPath = `/v1/stream/missing-ct-post-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Try to append without Content-Type - should fail
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         body: `data`,
       })
@@ -1340,7 +1339,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should accept PUT without Content-Type (use default)`, async () => {
       const streamPath = `/v1/stream/no-ct-put-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
       })
 
@@ -1352,16 +1351,19 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should ignore unknown query parameters`, async () => {
       const streamPath = `/v1/stream/unknown-param-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test data`,
       })
 
       // Should work fine with unknown params
-      const response = await fetch(`${baseUrl}${streamPath}?offset=0&foo=bar&baz=qux`, {
-        method: `GET`,
-      })
+      const response = await fetch(
+        `${getBaseUrl()}${streamPath}?offset=0&foo=bar&baz=qux`,
+        {
+          method: `GET`,
+        }
+      )
 
       expect(response.status).toBe(200)
       const text = await response.text()
@@ -1378,7 +1380,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/killer-invariant-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/octet-stream` },
       })
@@ -1396,7 +1398,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         }
         chunks.push(chunk)
 
-        await fetch(`${baseUrl}${streamPath}`, {
+        await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `POST`,
           headers: { "Content-Type": `application/octet-stream` },
           body: chunk,
@@ -1422,8 +1424,8 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         iterations++
 
         const url = currentOffset
-          ? `${baseUrl}${streamPath}?offset=${encodeURIComponent(currentOffset)}`
-          : `${baseUrl}${streamPath}`
+          ? `${getBaseUrl()}${streamPath}?offset=${encodeURIComponent(currentOffset)}`
+          : `${getBaseUrl()}${streamPath}`
 
         const response = await fetch(url, { method: `GET` })
         expect(response.status).toBe(200)
@@ -1471,15 +1473,18 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should require offset parameter for long-poll`, async () => {
       const streamPath = `/v1/stream/longpoll-no-offset-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Try long-poll without offset - protocol says offset MUST be provided
-      const response = await fetch(`${baseUrl}${streamPath}?live=long-poll`, {
-        method: `GET`,
-      })
+      const response = await fetch(
+        `${getBaseUrl()}${streamPath}?live=long-poll`,
+        {
+          method: `GET`,
+        }
+      )
 
       expect(response.status).toBe(400)
     })
@@ -1488,7 +1493,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/longpoll-204-offset-test-${Date.now()}`
 
       // Create stream
-      const putResponse = await fetch(`${baseUrl}${streamPath}`, {
+      const putResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
@@ -1497,7 +1502,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Long-poll at tail with short timeout - should eventually 204
       const response = await fetch(
-        `${baseUrl}${streamPath}?offset=${tailOffset}&live=long-poll`,
+        `${getBaseUrl()}${streamPath}?offset=${tailOffset}&live=long-poll`,
         {
           method: `GET`,
         }
@@ -1513,7 +1518,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should accept cursor parameter for collapsing`, async () => {
       const streamPath = `/v1/stream/longpoll-cursor-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test data`,
@@ -1521,7 +1526,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Long-poll with cursor param should not error
       const response = await fetch(
-        `${baseUrl}${streamPath}?offset=0&live=long-poll&cursor=test-cursor-123`,
+        `${getBaseUrl()}${streamPath}?offset=0&live=long-poll&cursor=test-cursor-123`,
         {
           method: `GET`,
         }
@@ -1546,7 +1551,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject TTL with leading zeros`, async () => {
       const streamPath = `/v1/stream/ttl-leading-zeros-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1560,7 +1565,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject TTL with plus sign`, async () => {
       const streamPath = `/v1/stream/ttl-plus-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1574,7 +1579,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject TTL with float value`, async () => {
       const streamPath = `/v1/stream/ttl-float-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1588,7 +1593,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject TTL with whitespace`, async () => {
       const streamPath = `/v1/stream/ttl-whitespace-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1602,7 +1607,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject TTL with scientific notation`, async () => {
       const streamPath = `/v1/stream/ttl-scientific-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1616,7 +1621,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject invalid Expires-At timestamp`, async () => {
       const streamPath = `/v1/stream/expires-invalid-test-${Date.now()}`
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1632,7 +1637,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       const expiresAt = new Date(Date.now() + 3600000).toISOString()
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1650,7 +1655,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const date = new Date(Date.now() + 3600000)
       const expiresAt = date.toISOString().replace(`Z`, `+00:00`)
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1665,7 +1670,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/ttl-idempotent-test-${Date.now()}`
 
       // Create with TTL
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1675,7 +1680,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(response1.status).toBe(201)
 
       // PUT again with same TTL - should be idempotent
-      const response2 = await fetch(`${baseUrl}${streamPath}`, {
+      const response2 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1689,7 +1694,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/ttl-conflict-test-${Date.now()}`
 
       // Create with TTL=3600
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1698,7 +1703,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       })
 
       // PUT again with different TTL - should fail
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1718,12 +1723,12 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should return Cache-Control no-store or similar`, async () => {
       const streamPath = `/v1/stream/head-cache-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
 
@@ -1733,8 +1738,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       // Protocol says SHOULD be no-store or private,max-age=0,must-revalidate
       const isNoStore = cacheControl?.includes(`no-store`)
       const isPrivateNoCache =
-        cacheControl?.includes(`private`) &&
-        cacheControl?.includes(`max-age=0`)
+        cacheControl?.includes(`private`) && cacheControl.includes(`max-age=0`)
 
       expect(isNoStore || isPrivateNoCache).toBe(true)
     })
@@ -1743,7 +1747,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/head-ttl-metadata-test-${Date.now()}`
 
       // Create with TTL
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1751,7 +1755,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         },
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
 
@@ -1769,7 +1773,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const expiresAt = new Date(Date.now() + 3600000).toISOString()
 
       // Create with Expires-At
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: {
           "Content-Type": `text/plain`,
@@ -1777,7 +1781,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         },
       })
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `HEAD`,
       })
 
@@ -1797,14 +1801,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should support ETag and If-None-Match for 304`, async () => {
       const streamPath = `/v1/stream/etag-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test data`,
       })
 
       // First request
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -1812,7 +1816,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(etag).toBeDefined()
 
       // Second request with If-None-Match
-      const response2 = await fetch(`${baseUrl}${streamPath}`, {
+      const response2 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
         headers: {
           "If-None-Match": etag!,
@@ -1842,7 +1846,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should handle chunk-size pagination correctly`, async () => {
       const streamPath = `/v1/stream/chunk-pagination-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/octet-stream` },
       })
@@ -1853,7 +1857,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         largeData[i] = i % 256
       }
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `application/octet-stream` },
         body: largeData,
@@ -1870,8 +1874,8 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         iterations++
 
         const url = currentOffset
-          ? `${baseUrl}${streamPath}?offset=${encodeURIComponent(currentOffset)}`
-          : `${baseUrl}${streamPath}`
+          ? `${getBaseUrl()}${streamPath}?offset=${encodeURIComponent(currentOffset)}`
+          : `${getBaseUrl()}${streamPath}`
 
         const response = await fetch(url, { method: `GET` })
         expect(response.status).toBe(200)
@@ -1917,7 +1921,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should handle large payload appropriately`, async () => {
       const streamPath = `/v1/stream/large-payload-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/octet-stream` },
       })
@@ -1925,7 +1929,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       // Try to append very large payload (10MB)
       const largeData = new Uint8Array(10 * 1024 * 1024)
 
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `application/octet-stream` },
         body: largeData,
@@ -1944,7 +1948,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`random append/read sequences maintain invariants`, async () => {
       const streamPath = `/v1/stream/fuzz-append-read-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `application/octet-stream` },
       })
@@ -1965,7 +1969,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         }
 
         // Append
-        const response = await fetch(`${baseUrl}${streamPath}`, {
+        const response = await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `POST`,
           headers: { "Content-Type": `application/octet-stream` },
           body: chunk,
@@ -1984,8 +1988,8 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         iterations++
 
         const url = currentOffset
-          ? `${baseUrl}${streamPath}?offset=${encodeURIComponent(currentOffset)}`
-          : `${baseUrl}${streamPath}`
+          ? `${getBaseUrl()}${streamPath}?offset=${encodeURIComponent(currentOffset)}`
+          : `${getBaseUrl()}${streamPath}`
 
         const response = await fetch(url, { method: `GET` })
         const buffer = await response.arrayBuffer()
@@ -2020,7 +2024,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`random offset reads always return consistent data`, async () => {
       const streamPath = `/v1/stream/fuzz-offset-reads-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
@@ -2033,7 +2037,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         const chunk = `chunk${i}-${Math.random()}`
         chunks.push(chunk)
 
-        const response = await fetch(`${baseUrl}${streamPath}`, {
+        const response = await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `POST`,
           headers: { "Content-Type": `text/plain` },
           body: chunk,
@@ -2051,13 +2055,13 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
         // Read twice from same offset
         const response1 = await fetch(
-          `${baseUrl}${streamPath}?offset=${encodeURIComponent(offset)}`,
+          `${getBaseUrl()}${streamPath}?offset=${encodeURIComponent(offset)}`,
           { method: `GET` }
         )
         const text1 = await response1.text()
 
         const response2 = await fetch(
-          `${baseUrl}${streamPath}?offset=${encodeURIComponent(offset)}`,
+          `${getBaseUrl()}${streamPath}?offset=${encodeURIComponent(offset)}`,
           { method: `GET` }
         )
         const text2 = await response2.text()
@@ -2076,7 +2080,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should reject malformed offset characters`, async () => {
       const streamPath = `/v1/stream/fuzz-bad-offset-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `test`,
@@ -2098,7 +2102,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       for (const badOffset of badOffsets) {
         const response = await fetch(
-          `${baseUrl}${streamPath}?offset=${badOffset}`,
+          `${getBaseUrl()}${streamPath}?offset=${badOffset}`,
           {
             method: `GET`,
           }
@@ -2131,7 +2135,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       for (const ttl of malformedTTLs) {
         const streamPath = `/v1/stream/fuzz-ttl-${Date.now()}-${Math.random()}`
 
-        const response = await fetch(`${baseUrl}${streamPath}`, {
+        const response = await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `PUT`,
           headers: {
             "Content-Type": `text/plain`,
@@ -2159,7 +2163,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       for (const ct of malformedContentTypes) {
         const streamPath = `/v1/stream/fuzz-ct-${Date.now()}-${Math.random()}`
 
-        const response = await fetch(`${baseUrl}${streamPath}`, {
+        const response = await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `PUT`,
           headers: {
             "Content-Type": ct,
@@ -2181,7 +2185,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
     test(`should handle random Stream-Seq values safely`, async () => {
       const streamPath = `/v1/stream/fuzz-seq-test-${Date.now()}`
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
@@ -2202,7 +2206,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       ]
 
       for (const seq of seqValues) {
-        const response = await fetch(`${baseUrl}${streamPath}`, {
+        const response = await fetch(`${getBaseUrl()}${streamPath}`, {
           method: `POST`,
           headers: {
             "Content-Type": `text/plain`,
@@ -2227,14 +2231,14 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/ryw-test-${Date.now()}`
 
       // Create stream and append
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `initial`,
       })
 
       // Immediately read - should see the data
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -2246,32 +2250,32 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/ryw-multi-test-${Date.now()}`
 
       // Create stream
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
       })
 
       // Append multiple messages
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `msg1`,
       })
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `msg2`,
       })
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `msg3`,
       })
 
       // Immediately read - should see all messages
-      const response = await fetch(`${baseUrl}${streamPath}`, {
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
 
@@ -2283,26 +2287,26 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       const streamPath = `/v1/stream/ryw-offset-test-${Date.now()}`
 
       // Create stream with first message
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `PUT`,
         headers: { "Content-Type": `text/plain` },
         body: `first`,
       })
 
       // Get offset
-      const response1 = await fetch(`${baseUrl}${streamPath}`, {
+      const response1 = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `GET`,
       })
       const offset1 = response1.headers.get(STREAM_OFFSET_HEADER)!
 
       // Append more messages immediately
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `second`,
       })
 
-      await fetch(`${baseUrl}${streamPath}`, {
+      await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: { "Content-Type": `text/plain` },
         body: `third`,
@@ -2310,7 +2314,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // Immediately read from offset1 - should see second and third
       const response2 = await fetch(
-        `${baseUrl}${streamPath}?offset=${offset1}`,
+        `${getBaseUrl()}${streamPath}?offset=${offset1}`,
         {
           method: `GET`,
         }
