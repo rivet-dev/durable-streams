@@ -173,16 +173,21 @@ Durable Streams operates in two modes for handling message boundaries:
 
 ### Byte Stream Mode (Default)
 
-By default, Durable Streams is a **raw byte stream with no message boundaries**. When you append data, it's concatenated directly. A single read may return partial messages, multiple messages, or data spanning across reads.
+By default, Durable Streams is a **raw byte stream with no message boundaries**. When you append data, it's concatenated directly. Each read returns all bytes from your offset to the current end of the stream, but these boundaries don't align with application-level "messages."
 
 ```typescript
 // Append multiple messages
 await stream.append("hello")
 await stream.append("world")
 
-// Reads return arbitrary byte chunks - NOT message-aligned
+// Read from beginning - returns all data concatenated
 const result = await stream.read()
-// result.data might be: "helloworld", "hello", "hel", etc.
+// result.data = "helloworld" (complete stream from offset to end)
+
+// If more data arrives and you read again from the returned offset
+await stream.append("!")
+const next = await stream.read({ offset: result.offset })
+// next.data = "!" (complete new data from last offset to new end)
 ```
 
 **You must implement your own framing.** Common patterns:
