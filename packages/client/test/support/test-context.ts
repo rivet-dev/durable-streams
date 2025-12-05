@@ -4,8 +4,8 @@
  */
 
 import { test } from "vitest"
-import { DurableStreamTestServer } from "@electric-sql/durable-stream-test-server"
-import type { StreamStore } from "@electric-sql/durable-stream-test-server"
+import { DurableStreamTestServer } from "@durable-streams/server"
+import type { StreamStore } from "@durable-streams/server"
 
 /**
  * Base test fixture with server and abort controller.
