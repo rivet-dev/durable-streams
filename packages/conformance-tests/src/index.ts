@@ -8,6 +8,7 @@
 import { describe, expect, test } from "vitest"
 import { DurableStream } from "@durable-streams/writer"
 import {
+  STREAM_CLOSED_HEADER,
   STREAM_OFFSET_HEADER,
   STREAM_SEQ_HEADER,
   STREAM_UP_TO_DATE_HEADER,
@@ -2154,6 +2155,208 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       const text = await response2.text()
       expect(text).toBe(`secondthird`)
+    })
+  })
+
+  // ============================================================================
+  // Stream Close Operations
+  // ============================================================================
+
+  describe(`Stream Close Operations`, () => {
+    test(`should close a stream with PATCH`, async () => {
+      const streamPath = `/v1/stream/close-test-${Date.now()}`
+
+      // Create stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+
+      // Close the stream with PATCH
+      const closeResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      expect(closeResponse.status).toBe(204)
+      expect(closeResponse.headers.get(STREAM_CLOSED_HEADER)).toBe(`true`)
+      expect(closeResponse.headers.get(STREAM_OFFSET_HEADER)).toBeDefined()
+    })
+
+    test(`should allow idempotent close`, async () => {
+      const streamPath = `/v1/stream/close-idempotent-test-${Date.now()}`
+
+      // Create stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+
+      // Close twice - should not error
+      const closeResponse1 = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+      expect(closeResponse1.status).toBe(204)
+
+      const closeResponse2 = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+      expect(closeResponse2.status).toBe(204)
+    })
+
+    test(`should reject PATCH with body`, async () => {
+      const streamPath = `/v1/stream/close-body-test-${Date.now()}`
+
+      // Create stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+
+      // PATCH with body should fail
+      const closeResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+        body: `should not have body`,
+      })
+
+      expect(closeResponse.status).toBe(400)
+    })
+
+    test(`should reject appends to closed stream (409)`, async () => {
+      const streamPath = `/v1/stream/close-append-test-${Date.now()}`
+
+      // Create stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+
+      // Close the stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      // Try to append - should fail with 409
+      const appendResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `POST`,
+        headers: { "Content-Type": `text/plain` },
+        body: `should fail`,
+      })
+
+      expect(appendResponse.status).toBe(409)
+    })
+
+    test(`should return closed header on HEAD for closed stream`, async () => {
+      const streamPath = `/v1/stream/close-head-test-${Date.now()}`
+
+      // Create and close stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      // HEAD should include closed header
+      const headResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `HEAD`,
+      })
+
+      expect(headResponse.status).toBe(200)
+      expect(headResponse.headers.get(STREAM_CLOSED_HEADER)).toBe(`true`)
+    })
+
+    test(`should return closed header on GET for closed stream`, async () => {
+      const streamPath = `/v1/stream/close-get-test-${Date.now()}`
+
+      // Create with data and close stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+        body: `some data`,
+      })
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      // GET should include closed header
+      const getResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `GET`,
+      })
+
+      expect(getResponse.status).toBe(200)
+      expect(getResponse.headers.get(STREAM_CLOSED_HEADER)).toBe(`true`)
+      const text = await getResponse.text()
+      expect(text).toBe(`some data`)
+    })
+
+    test(`should return 404 for PATCH on non-existent stream`, async () => {
+      const streamPath = `/v1/stream/close-404-test-${Date.now()}`
+
+      const closeResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      expect(closeResponse.status).toBe(404)
+    })
+
+    test(`should return 204 immediately for long-poll on closed stream at tail`, async () => {
+      const streamPath = `/v1/stream/close-longpoll-test-${Date.now()}`
+
+      // Create with data
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+        body: `data`,
+      })
+
+      // Read to get current offset
+      const readResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `GET`,
+      })
+      const offset = readResponse.headers.get(STREAM_OFFSET_HEADER)
+
+      // Close the stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      // Long-poll should return immediately with 204
+      const longPollResponse = await fetch(
+        `${getBaseUrl()}${streamPath}?offset=${offset}&live=long-poll`,
+        {
+          method: `GET`,
+        }
+      )
+
+      expect(longPollResponse.status).toBe(204)
+      expect(longPollResponse.headers.get(STREAM_CLOSED_HEADER)).toBe(`true`)
+    })
+
+    test(`should allow delete after close`, async () => {
+      const streamPath = `/v1/stream/close-delete-test-${Date.now()}`
+
+      // Create and close stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PATCH`,
+      })
+
+      // Delete should work
+      const deleteResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `DELETE`,
+      })
+
+      expect(deleteResponse.status).toBe(204)
+
+      // Verify it's gone
+      const getResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `GET`,
+      })
+      expect(getResponse.status).toBe(404)
     })
   })
 }
