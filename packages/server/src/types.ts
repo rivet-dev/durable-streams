@@ -66,6 +66,12 @@ export interface Stream {
    * Timestamp when the stream was created.
    */
   createdAt: number
+
+  /**
+   * Whether the stream has been closed.
+   * A closed stream cannot receive new appends but can still be read.
+   */
+  closed?: boolean
 }
 
 /**

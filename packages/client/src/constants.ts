@@ -26,6 +26,12 @@ export const STREAM_CURSOR_HEADER = `Stream-Cursor`
  */
 export const STREAM_UP_TO_DATE_HEADER = `Stream-Up-To-Date`
 
+/**
+ * Presence header indicating the stream is closed.
+ * When present, no more data will be appended to the stream.
+ */
+export const STREAM_CLOSED_HEADER = `Stream-Closed`
+
 // ============================================================================
 // Request Headers
 // ============================================================================

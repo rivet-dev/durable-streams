@@ -91,8 +91,28 @@ export class StreamStore {
   }
 
   /**
+   * Close a stream, preventing further appends.
+   * @returns The stream if found, undefined otherwise
+   */
+  closeStream(path: string): Stream | undefined {
+    const stream = this.streams.get(path)
+    if (!stream) {
+      return undefined
+    }
+
+    stream.closed = true
+
+    // Notify any pending long-polls that the stream is closed
+    // They should return immediately with closed status
+    this.notifyLongPollsStreamClosed(path)
+
+    return stream
+  }
+
+  /**
    * Append data to a stream.
    * @throws Error if stream doesn't exist
+   * @throws Error if stream is closed
    * @throws Error if seq is lower than lastSeq
    */
   append(
@@ -103,6 +123,10 @@ export class StreamStore {
     const stream = this.streams.get(path)
     if (!stream) {
       throw new Error(`Stream not found: ${path}`)
+    }
+
+    if (stream.closed) {
+      throw new Error(`Stream is closed: ${path}`)
     }
 
     // Check content type match (case-insensitive per RFC 2045)
@@ -289,6 +313,17 @@ export class StreamStore {
   private cancelLongPollsForStream(path: string): void {
     const toCancel = this.pendingLongPolls.filter((p) => p.path === path)
     for (const pending of toCancel) {
+      clearTimeout(pending.timeoutId)
+      pending.resolve([])
+    }
+    this.pendingLongPolls = this.pendingLongPolls.filter((p) => p.path !== path)
+  }
+
+  private notifyLongPollsStreamClosed(path: string): void {
+    // Resolve all pending long-polls for this stream with empty messages
+    // The server will detect the closed flag and return 204 with Stream-Closed header
+    const toNotify = this.pendingLongPolls.filter((p) => p.path === path)
+    for (const pending of toNotify) {
       clearTimeout(pending.timeoutId)
       pending.resolve([])
     }

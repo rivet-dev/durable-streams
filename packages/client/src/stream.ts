@@ -16,6 +16,7 @@ import {
   LIVE_QUERY_PARAM,
   OFFSET_QUERY_PARAM,
   SSE_COMPATIBLE_CONTENT_TYPES,
+  STREAM_CLOSED_HEADER,
   STREAM_CURSOR_HEADER,
   STREAM_EXPIRES_AT_HEADER,
   STREAM_OFFSET_HEADER,
@@ -223,6 +224,7 @@ export class DurableStream {
     const offset = response.headers.get(STREAM_OFFSET_HEADER) ?? undefined
     const etag = response.headers.get(`etag`) ?? undefined
     const cacheControl = response.headers.get(`cache-control`) ?? undefined
+    const closed = response.headers.has(STREAM_CLOSED_HEADER)
 
     // Update instance contentType
     if (contentType) {
@@ -235,6 +237,7 @@ export class DurableStream {
       offset,
       etag,
       cacheControl,
+      closed: closed || undefined,
     }
   }
 
@@ -293,6 +296,31 @@ export class DurableStream {
 
     const response = await this.#fetchClient(fetchUrl.toString(), {
       method: `DELETE`,
+      headers: requestHeaders,
+      signal: opts?.signal ?? this.#options.signal,
+    })
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new DurableStreamError(
+          `Stream not found: ${this.url}`,
+          `NOT_FOUND`,
+          404
+        )
+      }
+      throw await DurableStreamError.fromResponse(response, this.url)
+    }
+  }
+
+  /**
+   * Close this stream, preventing further appends.
+   * Closing is idempotent - closing an already-closed stream returns success.
+   */
+  async close(opts?: { signal?: AbortSignal }): Promise<void> {
+    const { requestHeaders, fetchUrl } = await this.#buildRequest()
+
+    const response = await this.#fetchClient(fetchUrl.toString(), {
+      method: `PATCH`,
       headers: requestHeaders,
       signal: opts?.signal ?? this.#options.signal,
     })
@@ -447,14 +475,16 @@ export class DurableStream {
         )
       }
       if (response.status === 204) {
-        // Long-poll timeout - no new data
+        // Long-poll timeout - no new data (or stream closed)
         const offset =
           response.headers.get(STREAM_OFFSET_HEADER) ?? opts?.offset ?? ``
+        const closed = response.headers.has(STREAM_CLOSED_HEADER)
         return {
           data: new Uint8Array(0),
           offset,
           upToDate: true,
           contentType: this.contentType,
+          closed: closed || undefined,
         }
       }
       throw await DurableStreamError.fromResponse(response, this.url)
@@ -485,6 +515,7 @@ export class DurableStream {
     let currentOffset = opts?.offset ?? `-1`
     let currentCursor = opts?.cursor
     let isUpToDate = false
+    let isClosed = false
 
     // Create a linked abort controller
     const aborter = new AbortController()
@@ -507,12 +538,22 @@ export class DurableStream {
                 return { done: true, value: undefined }
               }
 
+              // If stream is closed and we're caught up, stop
+              if (isClosed && isUpToDate) {
+                cleanup()
+                return { done: true, value: undefined }
+              }
+
               // If we have an SSE iterator, delegate to it
               if (sseIterator) {
                 const result = await sseIterator.next()
                 if (result.done) {
                   // SSE connection closed - cleanup
                   cleanup()
+                }
+                // Check if stream was closed via SSE control event
+                if (!result.done && result.value.closed) {
+                  isClosed = true
                 }
                 return result
               }
@@ -534,6 +575,9 @@ export class DurableStream {
                 currentOffset = chunk.offset
                 currentCursor = chunk.cursor
                 isUpToDate = chunk.upToDate
+                if (chunk.closed) {
+                  isClosed = true
+                }
 
                 return { done: false, value: chunk }
               }
@@ -559,6 +603,10 @@ export class DurableStream {
 
                 currentOffset = chunk.offset
                 currentCursor = chunk.cursor
+                if (chunk.closed) {
+                  isClosed = true
+                  isUpToDate = true
+                }
 
                 return { done: false, value: chunk }
               }
@@ -575,6 +623,9 @@ export class DurableStream {
                 currentOffset = chunk.offset
                 currentCursor = chunk.cursor
                 isUpToDate = chunk.upToDate
+                if (chunk.closed) {
+                  isClosed = true
+                }
 
                 // Update content type if not set
                 if (chunk.contentType && !stream.contentType) {
@@ -604,6 +655,10 @@ export class DurableStream {
 
                 currentOffset = chunk.offset
                 currentCursor = chunk.cursor
+                if (chunk.closed) {
+                  isClosed = true
+                  isUpToDate = true
+                }
 
                 return { done: false, value: chunk }
               }
@@ -840,6 +895,7 @@ export class DurableStream {
     const offset = response.headers.get(STREAM_OFFSET_HEADER) ?? ``
     const cursor = response.headers.get(STREAM_CURSOR_HEADER) ?? undefined
     const upToDate = response.headers.has(STREAM_UP_TO_DATE_HEADER)
+    const closed = response.headers.has(STREAM_CLOSED_HEADER)
     const etag = response.headers.get(`etag`) ?? undefined
     const contentType = response.headers.get(`content-type`) ?? undefined
 
@@ -855,6 +911,7 @@ export class DurableStream {
       upToDate,
       etag,
       contentType,
+      closed: closed || undefined,
     }
   }
 
@@ -950,12 +1007,14 @@ export class DurableStream {
               // Control event - flush the buffer (like Electric's up-to-date message)
               try {
                 const control = JSON.parse(event.data) as {
-                  [STREAM_OFFSET_HEADER]?: string
-                  [STREAM_CURSOR_HEADER]?: string
+                  streamNextOffset?: string
+                  streamCursor?: string
+                  streamClosed?: boolean
                 }
 
-                const newOffset = control[STREAM_OFFSET_HEADER]
-                const newCursor = control[STREAM_CURSOR_HEADER]
+                const newOffset = control.streamNextOffset
+                const newCursor = control.streamCursor
+                const streamClosed = control.streamClosed
 
                 // Concatenate buffered data
                 const totalSize = dataBuffer.reduce(
@@ -976,6 +1035,7 @@ export class DurableStream {
                   cursor: newCursor,
                   upToDate: true,
                   contentType: stream.contentType,
+                  closed: streamClosed || undefined,
                 }
 
                 // Update state
@@ -984,6 +1044,11 @@ export class DurableStream {
 
                 // Clear buffer
                 dataBuffer = []
+
+                // If stream is closed, mark connection as closed after delivering this chunk
+                if (streamClosed) {
+                  connectionClosed = true
+                }
 
                 // If someone is waiting for data, resolve immediately
                 if (pendingResolve) {

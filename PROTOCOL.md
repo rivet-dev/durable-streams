@@ -24,11 +24,12 @@ Copyright (c) 2025 ElectricSQL
 5. [HTTP Operations](#5-http-operations)
    - 5.1. [Create Stream](#51-create-stream)
    - 5.2. [Append to Stream](#52-append-to-stream)
-   - 5.3. [Delete Stream](#53-delete-stream)
-   - 5.4. [Stream Metadata](#54-stream-metadata)
-   - 5.5. [Read Stream - Catch-up](#55-read-stream---catch-up)
-   - 5.6. [Read Stream - Live (Long-poll)](#56-read-stream---live-long-poll)
-   - 5.7. [Read Stream - Live (SSE)](#57-read-stream---live-sse)
+   - 5.3. [Close Stream](#53-close-stream)
+   - 5.4. [Delete Stream](#54-delete-stream)
+   - 5.5. [Stream Metadata](#55-stream-metadata)
+   - 5.6. [Read Stream - Catch-up](#56-read-stream---catch-up)
+   - 5.7. [Read Stream - Live (Long-poll)](#57-read-stream---live-long-poll)
+   - 5.8. [Read Stream - Live (SSE)](#58-read-stream---live-sse)
 6. [Offsets](#6-offsets)
 7. [Content Types](#7-content-types)
 8. [Caching and Collapsing](#8-caching-and-collapsing)
@@ -70,13 +71,14 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 The Durable Streams Protocol is an HTTP-based protocol that operates on URLs. A stream is simply a URL; the protocol defines how to interact with that URL using standard HTTP methods, query parameters, and custom headers.
 
-The protocol defines operations to create, append to, read, delete, and query metadata for streams. Reads have three modes: catch-up, long-poll, and Server-Sent Events (SSE). The primary operations are:
+The protocol defines operations to create, append to, close, read, delete, and query metadata for streams. Reads have three modes: catch-up, long-poll, and Server-Sent Events (SSE). The primary operations are:
 
 1. **Create**: Establish a new stream at a URL with optional initial content (PUT)
 2. **Append**: Add bytes to the end of an existing stream (POST)
-3. **Read**: Retrieve bytes starting from a given offset, with support for catch-up and live modes (GET)
-4. **Delete**: Remove a stream (DELETE)
-5. **Head**: Query stream metadata without transferring data (HEAD)
+3. **Close**: Mark a stream as closed, preventing further appends (PATCH)
+4. **Read**: Retrieve bytes starting from a given offset, with support for catch-up and live modes (GET)
+5. **Delete**: Remove a stream (DELETE)
+6. **Head**: Query stream metadata without transferring data (HEAD)
 
 The protocol does not prescribe a specific URL structure. Servers may organize streams using any URL scheme they choose (e.g., `/v1/stream/{path}`, `/streams/{id}`, or domain-specific paths). The protocol is defined by the HTTP methods, query parameters, and headers applied to any stream URL.
 
@@ -193,7 +195,53 @@ Servers that do not support appends for a given stream **SHOULD** return `405 Me
 
 - `Stream-Next-Offset: <offset>`: The new tail offset after the append
 
-### 5.3. Delete Stream
+### 5.3. Close Stream
+
+#### Request
+
+```
+PATCH {stream-url}
+```
+
+Where `{stream-url}` is the URL of the stream to close.
+
+Closes a stream, preventing further appends while preserving all existing data. This is a terminal operation - a closed stream cannot be reopened. Closing is idempotent: closing an already-closed stream returns success.
+
+This operation is useful for finite streams such as AI token streaming, file uploads, or any stream where the producer knows when the data is complete.
+
+#### Request Body
+
+The request body **MUST** be empty.
+
+#### Response Codes
+
+- `204 No Content`: Stream closed successfully (or was already closed)
+- `404 Not Found`: Stream does not exist
+- `405 Method Not Allowed` or `501 Not Implemented`: Close not supported for this stream
+- `400 Bad Request`: Request body was not empty
+
+#### Response Headers (on 204)
+
+- `Stream-Closed: true`: Confirms the stream is now closed
+- `Stream-Next-Offset: <offset>`: The final tail offset of the closed stream
+
+#### Behavior After Close
+
+Once a stream is closed:
+
+1. **Appends (POST)**: **MUST** be rejected with `409 Conflict` and an error message indicating the stream is closed.
+
+2. **Reads (GET)**:
+   - Continue to work normally, returning all existing data.
+   - **MUST** include `Stream-Closed: true` header in all responses.
+   - Long-poll requests return immediately with `204 No Content` and `Stream-Closed: true` if no new data is available (instead of waiting for the timeout).
+   - SSE connections receive a final `control` event with `streamClosed: true` and the connection is closed by the server.
+
+3. **Head (HEAD)**: Returns metadata including `Stream-Closed: true` header.
+
+4. **Delete (DELETE)**: Works normally to permanently remove the stream.
+
+### 5.4. Delete Stream
 
 #### Request
 
@@ -211,7 +259,7 @@ Deletes the stream and all its data. In-flight reads may terminate with a `404 N
 - `404 Not Found`: Stream does not exist
 - `405 Method Not Allowed` or `501 Not Implemented`: Delete not supported for this stream
 
-### 5.4. Stream Metadata
+### 5.5. Stream Metadata
 
 #### Request
 
@@ -239,7 +287,7 @@ Where `{stream-url}` is the URL of the stream. Checks stream existence and retur
 
 Servers **SHOULD** make `HEAD` responses effectively non-cacheable, for example by returning `Cache-Control: no-store`. Servers **MAY** use `Cache-Control: private, max-age=0, must-revalidate` as an alternative, but `no-store` is recommended to avoid stale tail offsets.
 
-### 5.5. Read Stream - Catch-up
+### 5.6. Read Stream - Catch-up
 
 #### Request
 
@@ -282,7 +330,7 @@ For non-live reads without data beyond the requested offset, servers **SHOULD** 
 
 - Bytes from the stream starting at the specified offset, up to a server-defined maximum chunk size.
 
-### 5.6. Read Stream - Live (Long-poll)
+### 5.7. Read Stream - Live (Long-poll)
 
 #### Request
 
@@ -328,7 +376,7 @@ Where `{stream-url}` is the URL of the stream. If no data is available at the sp
 
 The timeout for long-polling is implementation-defined. Servers **MAY** accept a `timeout` query parameter (in seconds) as a future extension, but this is not required by the base protocol.
 
-### 5.7. Read Stream - Live (SSE)
+### 5.8. Read Stream - Live (SSE)
 
 #### Request
 
@@ -509,6 +557,7 @@ This document requests registration of the following HTTP headers in the "Perman
 | `Stream-Cursor`      | permanent | This document |
 | `Stream-Next-Offset` | permanent | This document |
 | `Stream-Up-To-Date`  | permanent | This document |
+| `Stream-Closed`      | permanent | This document |
 
 **Descriptions:**
 
@@ -518,6 +567,7 @@ This document requests registration of the following HTTP headers in the "Perman
 - `Stream-Cursor`: Cursor for CDN collapsing (opaque string)
 - `Stream-Next-Offset`: Next offset for subsequent reads (opaque string)
 - `Stream-Up-To-Date`: Indicates up-to-date response (presence header)
+- `Stream-Closed`: Indicates the stream is closed and no more data will be appended (presence header)
 
 ## 12. References
 

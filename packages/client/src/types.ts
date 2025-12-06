@@ -207,6 +207,12 @@ export interface HeadResult {
    * Cache-Control header value.
    */
   cacheControl?: string
+
+  /**
+   * True if the stream is closed (no more data will be appended).
+   * When true, clients should not wait for more data.
+   */
+  closed?: boolean
 }
 
 /**
@@ -244,6 +250,12 @@ export interface ReadResult {
    * Content type of the data.
    */
   contentType?: string
+
+  /**
+   * True if the stream is closed (no more data will be appended).
+   * When true, clients should not wait for more data.
+   */
+  closed?: boolean
 }
 
 /**
@@ -259,6 +271,7 @@ export type DurableStreamErrorCode =
   | `NOT_FOUND`
   | `CONFLICT_SEQ`
   | `CONFLICT_EXISTS`
+  | `STREAM_CLOSED`
   | `BAD_REQUEST`
   | `BUSY`
   | `SSE_NOT_SUPPORTED`

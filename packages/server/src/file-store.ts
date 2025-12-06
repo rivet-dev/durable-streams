@@ -32,6 +32,11 @@ interface StreamMetadata {
    * This allows safe async deletion and immediate reuse of stream paths.
    */
   directoryName: string
+  /**
+   * Whether the stream has been closed.
+   * A closed stream cannot receive new appends but can still be read.
+   */
+  closed?: boolean
 }
 
 /**
@@ -318,6 +323,7 @@ export class FileBackedStreamStore {
       ttlSeconds: meta.ttlSeconds,
       expiresAt: meta.expiresAt,
       createdAt: meta.createdAt,
+      closed: meta.closed,
     }
   }
 
@@ -426,6 +432,31 @@ export class FileBackedStreamStore {
     return this.db.get(key) !== undefined
   }
 
+  /**
+   * Close a stream, preventing further appends.
+   * @returns The stream if found, undefined otherwise
+   */
+  closeStream(streamPath: string): Stream | undefined {
+    const key = `stream:${streamPath}`
+    const streamMeta = this.db.get(key) as StreamMetadata | undefined
+
+    if (!streamMeta) {
+      return undefined
+    }
+
+    // Update metadata with closed flag
+    const updatedMeta: StreamMetadata = {
+      ...streamMeta,
+      closed: true,
+    }
+    this.db.putSync(key, updatedMeta)
+
+    // Notify any pending long-polls that the stream is closed
+    this.notifyLongPollsStreamClosed(streamPath)
+
+    return this.streamMetaToStream(updatedMeta)
+  }
+
   delete(streamPath: string): boolean {
     const key = `stream:${streamPath}`
     const streamMeta = this.db.get(key) as StreamMetadata | undefined
@@ -479,6 +510,10 @@ export class FileBackedStreamStore {
 
     if (!streamMeta) {
       throw new Error(`Stream not found: ${streamPath}`)
+    }
+
+    if (streamMeta.closed) {
+      throw new Error(`Stream is closed: ${streamPath}`)
     }
 
     // Check content type match (case-insensitive per RFC 2045)
@@ -798,6 +833,19 @@ export class FileBackedStreamStore {
   private cancelLongPollsForStream(streamPath: string): void {
     const toCancel = this.pendingLongPolls.filter((p) => p.path === streamPath)
     for (const pending of toCancel) {
+      clearTimeout(pending.timeoutId)
+      pending.resolve([])
+    }
+    this.pendingLongPolls = this.pendingLongPolls.filter(
+      (p) => p.path !== streamPath
+    )
+  }
+
+  private notifyLongPollsStreamClosed(streamPath: string): void {
+    // Resolve all pending long-polls for this stream with empty messages
+    // The server will detect the closed flag and return 204 with Stream-Closed header
+    const toNotify = this.pendingLongPolls.filter((p) => p.path === streamPath)
+    for (const pending of toNotify) {
       clearTimeout(pending.timeoutId)
       pending.resolve([])
     }

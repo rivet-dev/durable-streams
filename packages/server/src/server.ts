@@ -12,6 +12,7 @@ import type { TestServerOptions } from "./types"
 const STREAM_OFFSET_HEADER = `Stream-Next-Offset`
 const STREAM_CURSOR_HEADER = `Stream-Cursor`
 const STREAM_UP_TO_DATE_HEADER = `Stream-Up-To-Date`
+const STREAM_CLOSED_HEADER = `Stream-Closed`
 const STREAM_SEQ_HEADER = `Stream-Seq`
 const STREAM_TTL_HEADER = `Stream-TTL`
 const STREAM_EXPIRES_AT_HEADER = `Stream-Expires-At`
@@ -148,7 +149,7 @@ export class DurableStreamTestServer {
     res.setHeader(`access-control-allow-origin`, `*`)
     res.setHeader(
       `access-control-allow-methods`,
-      `GET, POST, PUT, DELETE, HEAD, OPTIONS`
+      `GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`
     )
     res.setHeader(
       `access-control-allow-headers`,
@@ -156,7 +157,7 @@ export class DurableStreamTestServer {
     )
     res.setHeader(
       `access-control-expose-headers`,
-      `Stream-Next-Offset, Stream-Cursor, Stream-Up-To-Date, etag, content-type`
+      `Stream-Next-Offset, Stream-Cursor, Stream-Up-To-Date, Stream-Closed, etag, content-type`
     )
 
     // Handle CORS preflight
@@ -179,6 +180,9 @@ export class DurableStreamTestServer {
           break
         case `POST`:
           await this.handleAppend(path, req, res)
+          break
+        case `PATCH`:
+          await this.handleClose(path, req, res)
           break
         case `DELETE`:
           this.handleDelete(path, res)
@@ -203,6 +207,9 @@ export class DurableStreamTestServer {
         } else if (err.message.includes(`Content-type mismatch`)) {
           res.writeHead(400, { "content-type": `text/plain` })
           res.end(`Content-type mismatch`)
+        } else if (err.message.includes(`Stream is closed`)) {
+          res.writeHead(409, { "content-type": `text/plain` })
+          res.end(`Stream is closed`)
         } else {
           throw err
         }
@@ -325,6 +332,10 @@ export class DurableStreamTestServer {
       headers[`content-type`] = stream.contentType
     }
 
+    if (stream.closed) {
+      headers[STREAM_CLOSED_HEADER] = `true`
+    }
+
     // Generate ETag: {path}:{offset}
     headers[`etag`] =
       `"${Buffer.from(path).toString(`base64`)}:${stream.currentOffset}"`
@@ -394,19 +405,37 @@ export class DurableStreamTestServer {
     // 2. Client provided an offset (not first request)
     // 3. Client's offset matches current offset (already caught up)
     // 4. No new messages
+    // 5. Stream is NOT closed (closed streams return immediately)
     const clientIsCaughtUp = offset && offset === stream.currentOffset
     if (live === `long-poll` && clientIsCaughtUp && messages.length === 0) {
+      // If stream is closed, return 204 immediately with closed header
+      if (stream.closed) {
+        res.writeHead(204, {
+          [STREAM_OFFSET_HEADER]: offset,
+          [STREAM_CLOSED_HEADER]: `true`,
+        })
+        res.end()
+        return
+      }
+
       const result = await this.store.waitForMessages(
         path,
         offset,
         this.options.longPollTimeout
       )
 
+      // Re-fetch stream to check if it was closed during wait
+      const currentStream = this.store.get(path)
+
       if (result.timedOut) {
         // Return 204 No Content on timeout
-        res.writeHead(204, {
+        const headers: Record<string, string> = {
           [STREAM_OFFSET_HEADER]: offset,
-        })
+        }
+        if (currentStream?.closed) {
+          headers[STREAM_CLOSED_HEADER] = `true`
+        }
+        res.writeHead(204, headers)
         res.end()
         return
       }
@@ -434,6 +463,11 @@ export class DurableStreamTestServer {
     // Set up-to-date header
     if (upToDate) {
       headers[STREAM_UP_TO_DATE_HEADER] = `true`
+    }
+
+    // Set closed header if stream is closed
+    if (stream.closed) {
+      headers[STREAM_CLOSED_HEADER] = `true`
     }
 
     // Concatenate all message data
@@ -477,6 +511,36 @@ export class DurableStreamTestServer {
 
     res.writeHead(200, {
       [STREAM_OFFSET_HEADER]: message.offset,
+    })
+    res.end()
+  }
+
+  /**
+   * Handle PATCH - close stream
+   */
+  private async handleClose(
+    path: string,
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    // Check that body is empty per protocol
+    const body = await this.readBody(req)
+    if (body.length > 0) {
+      res.writeHead(400, { "content-type": `text/plain` })
+      res.end(`Request body must be empty for close operation`)
+      return
+    }
+
+    const stream = this.store.closeStream(path)
+    if (!stream) {
+      res.writeHead(404, { "content-type": `text/plain` })
+      res.end(`Stream not found`)
+      return
+    }
+
+    res.writeHead(204, {
+      [STREAM_CLOSED_HEADER]: `true`,
+      [STREAM_OFFSET_HEADER]: stream.currentOffset,
     })
     res.end()
   }
