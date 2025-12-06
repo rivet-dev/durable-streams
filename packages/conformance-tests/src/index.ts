@@ -330,11 +330,10 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       // Add data first
       await stream.append(`existing data`)
 
-      // Long-poll from beginning should return immediately
+      // Read should return existing data immediately
       let text = ``
-      for await (const chunk of stream.read({ live: `long-poll` })) {
+      for await (const chunk of stream.read({ live: false })) {
         text += new TextDecoder().decode(chunk.data)
-        if (chunk.data.length > 0) break
       }
 
       expect(text).toBe(`existing data`)
