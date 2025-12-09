@@ -11,6 +11,7 @@ Durable Streams provides a simple, production-proven protocol for creating and c
 Modern applications frequently need ordered, durable sequences of data that can be replayed from arbitrary points and tailed in real time. Common patterns include:
 
 - **AI conversation streaming** - Stream LLM token responses with resume capability across reconnections
+- **Agentic apps** - Stream tool outputs and progress events with replay and clean reconnect semantics
 - **Database synchronization** - Stream database changes to web, mobile, and native clients
 - **Collaborative editing** - Sync CRDTs and operational transforms across devices
 - **Real-time updates** - Push application state to clients with guaranteed delivery
@@ -19,9 +20,11 @@ Modern applications frequently need ordered, durable sequences of data that can 
 
 While durable streams exist throughout backend infrastructure (database WALs, Kafka topics, event stores), they aren't available as a first-class primitive for client applications. There's no simple, HTTP-based durable stream that sits alongside databases and object storage as a standard cloud primitive.
 
-Applications typically implement ad-hoc solutions for resumable streaming—combinations of databases, queues, polling mechanisms, and custom offset tracking. Most implementations handle reconnection poorly: streaming responses break when clients switch tabs, experience brief network interruptions, or refresh pages.
+WebSocket and SSE connections are easy to start, but they're fragile in practice: tabs get suspended, networks flap, devices switch, pages refresh. When that happens, you either lose in-flight data or build a bespoke backend storage and client resume protocol on top.
 
-**Durable Streams addresses this gap.** It's a minimal HTTP-based protocol for durable, offset-based streaming designed for client applications across all platforms: web browsers, mobile apps, native clients, IoT devices, and edge workers. Based on 1.5 years of production use at [Electric](https://electric-sql.com/) for real-time Postgres sync.
+AI products make this painfully visible. Token streaming is the UI for chat and copilots, and agentic apps stream progress events, tool outputs, and partial results over long-running sessions. When the stream fails, the product fails—even if the model did the right thing.
+
+**Durable Streams addresses this gap.** It's a minimal HTTP-based protocol for durable, offset-based streaming designed for client applications across all platforms: web browsers, mobile apps, native clients, IoT devices, and edge workers. Based on 1.5 years of production use at [Electric](https://electric-sql.com/) for real-time Postgres sync, reliably delivering millions of state changes every day.
 
 The protocol provides:
 
@@ -41,12 +44,43 @@ This monorepo contains:
 - **[@durable-streams/writer](./packages/writer)** - TypeScript read/write client (includes create/append/delete operations)
 - **[@durable-streams/server](./packages/server)** - Node.js reference server implementation
 - **[@durable-streams/cli](./packages/cli)** - Command-line tool
+- **[@durable-streams/test-ui](./packages/test-ui)** - Visual web interface for testing and exploring streams
 - **[@durable-streams/conformance-tests](./packages/conformance-tests)** - Protocol compliance test suite
 - **[@durable-streams/benchmarks](./packages/benchmarks)** - Performance benchmarking suite
 
 ## Try It Out Locally
 
-The fastest way to experience Durable Streams is to run the local server and CLI:
+<img width="5088" height="3820" alt="524000540-460eb79d-3970-4882-b39a-50bfd9d4c63d" src="https://github.com/user-attachments/assets/39090c01-38b1-4e7d-9b39-a8a13cec14d2" />
+
+Run the local server and use either the web-based Test UI or the command-line CLI:
+
+### Option 1: Test UI
+
+```bash
+# Clone and install
+git clone https://github.com/durable-streams/durable-streams.git
+cd durable-streams
+pnpm install
+
+# Terminal 1: Start the local server
+pnpm start:dev
+
+# Terminal 2: Launch the Test UI
+cd packages/test-ui
+pnpm dev
+```
+
+Open `http://localhost:3000` to:
+
+- Create and manage streams with different content types (text/plain, application/json, binary)
+- Write messages with keyboard shortcuts
+- Monitor real-time stream updates
+- View the stream registry to see all active streams
+- Inspect stream metadata and content-type rendering
+
+See the [Test UI README](./packages/test-ui/README.md) for details.
+
+### Option 2: CLI
 
 ```bash
 # Clone and install
@@ -75,7 +109,9 @@ durable-stream-dev write my-stream "More data..."
 echo "Piped content!" | durable-stream-dev write my-stream
 ```
 
-See the [CLI README](./packages/cli/README.md) for more details.
+See the [CLI README](./packages/cli/README.md) for details.
+
+The Test UI and CLI share the same `__registry__` system stream, so streams created in one are visible in the other.
 
 ## Quick Start
 
@@ -94,14 +130,9 @@ const stream = new DurableStream({
   url: "https://your-server.com/v1/stream/my-stream",
 })
 
-// Catch-up read - get all existing data
-const result = await stream.read()
+// Read existing data from stream (returns immediately)
+const result = await stream.read({ live: "catchup" })
 console.log(new TextDecoder().decode(result.data))
-
-// Live tail - follow new data as it arrives
-for await (const chunk of stream.follow({ live: "long-poll" })) {
-  console.log(new TextDecoder().decode(chunk.data))
-}
 ```
 
 ### Read/write client
@@ -126,26 +157,18 @@ await stream.append(JSON.stringify({ event: "user.created", userId: "123" }))
 await stream.append(JSON.stringify({ event: "user.updated", userId: "123" }))
 
 // Writer also includes all read operations
-const result = await stream.read()
+const result = await stream.read({ live: "catchup" })
 ```
 
 ### Resume from an offset
 
 ```typescript
 // Read and save the offset
-const result = await stream.read()
+const result = await stream.read({ live: "catchup" })
 const savedOffset = result.offset // Save this for later
 
-// Resume from saved offset
-const resumed = await stream.read({ offset: savedOffset })
-
-// Resume live tail from where you left off
-for await (const chunk of stream.follow({
-  offset: resumed.offset,
-  live: "long-poll",
-})) {
-  console.log(new TextDecoder().decode(chunk.data))
-}
+// Resume from saved offset (catchup mode returns immediately)
+const resumed = await stream.read({ offset: savedOffset, live: "catchup" })
 ```
 
 ## Protocol in 60 Seconds
@@ -214,7 +237,7 @@ await stream.append("hello")
 await stream.append("world")
 
 // Read from beginning - returns all data concatenated
-const result = await stream.read()
+const result = await stream.read({ live: "catchup" })
 // result.data = "helloworld" (complete stream from offset to end)
 
 // If more data arrives and you read again from the returned offset
@@ -237,7 +260,7 @@ const messages = text.split("\n").filter(Boolean).map(JSON.parse)
 
 ### JSON Mode
 
-When creating a stream with `contentType: "application/json"`, the server preserves message boundaries and returns reads as JSON arrays.
+When creating a stream with `contentType: "application/json"`, the server guarantees message boundaries. Each read returns a complete JSON array of the messages appended since the last offset.
 
 ```typescript
 // Create a JSON-mode stream
@@ -251,7 +274,7 @@ await stream.append({ event: "user.created", userId: "123" })
 await stream.append({ event: "user.updated", userId: "123" })
 
 // Read returns parsed JSON array
-for await (const message of stream.json()) {
+for await (const message of stream.json({ live: "catchup" })) {
   console.log(message)
   // { event: "user.created", userId: "123" }
   // { event: "user.updated", userId: "123" }
@@ -276,11 +299,11 @@ Offsets are opaque tokens that identify positions within a stream:
 - **Server-generated** - Always use the `offset` value returned in responses
 
 ```typescript
-// Start from beginning
-const result = await stream.read({ offset: "-1" })
+// Start from beginning (catchup mode)
+const result = await stream.read({ offset: "-1", live: "catchup" })
 
 // Resume from last position (always use returned offset)
-const next = await stream.read({ offset: result.offset })
+const next = await stream.read({ offset: result.offset, live: "catchup" })
 ```
 
 The only special offset value is `"-1"` for stream start. All other offsets are opaque strings returned by the server—never construct or parse them yourself.
@@ -332,6 +355,15 @@ Content-Type: application/json
 - **Cache-Control** - Historical data cached for 60s, stale content served during revalidation
 - **ETag** - Efficient revalidation for unchanged data
 - **Request collapsing** - Multiple clients requesting same offset collapsed to single upstream request
+
+## Performance
+
+Durable Streams is built for production scale:
+
+- **Low latency** - Sub-15ms end-to-end delivery in production deployments
+- **High concurrency** - Tested with millions of concurrent clients subscribed to a single stream without degradation
+- **Minimal overhead** - The protocol itself adds minimal overhead; throughput scales with your infrastructure
+- **Horizontal scaling** - Offset-based design enables aggressive caching at CDN edges, so read-heavy workloads (common in sync and AI scenarios) scale horizontally without overwhelming origin servers
 
 ## Relationship to Backend Streaming Systems
 
@@ -462,10 +494,9 @@ for (const change of db.changes()) {
 }
 
 // Client: receive and apply changes (works in browsers, React Native, native apps)
-for await (const chunk of stream.follow({ live: "long-poll" })) {
-  const change = JSON.parse(new TextDecoder().decode(chunk.data))
-  applyChange(change)
-}
+const result = await stream.read({ offset: lastSeenOffset })
+const changes = parseChanges(result.data)
+changes.forEach(applyChange)
 ```
 
 ### Event Sourcing
@@ -477,8 +508,8 @@ Build event-sourced systems with durable event logs:
 await stream.append(JSON.stringify({ type: "OrderCreated", orderId: "123" }))
 await stream.append(JSON.stringify({ type: "OrderPaid", orderId: "123" }))
 
-// Replay from beginning
-const result = await stream.read({ offset: "-1" })
+// Replay from beginning (catchup mode for full replay)
+const result = await stream.read({ offset: "-1", live: "catchup" })
 const events = parseEvents(result.data)
 const state = events.reduce(applyEvent, initialState)
 ```
@@ -494,12 +525,8 @@ for await (const token of llm.stream(prompt)) {
 }
 
 // Client can resume from any point (switch devices, refresh page, reconnect)
-for await (const chunk of stream.follow({
-  offset: lastSeenOffset,
-  live: "sse",
-})) {
-  renderToken(new TextDecoder().decode(chunk.data))
-}
+const result = await stream.read({ offset: lastSeenOffset })
+renderTokens(new TextDecoder().decode(result.data))
 ```
 
 ## Testing Your Implementation
