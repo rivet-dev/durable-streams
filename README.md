@@ -47,7 +47,7 @@ This monorepo contains:
 
 ## Try It Out Locally
 
-![Durable Streams Test UI](https://github.com/user-attachments/assets/test-ui-screenshot.png)
+<img width="5088" height="3820" alt="524000540-460eb79d-3970-4882-b39a-50bfd9d4c63d" src="https://github.com/user-attachments/assets/39090c01-38b1-4e7d-9b39-a8a13cec14d2" />
 
 Run the local server and use either the web-based Test UI or the command-line CLI:
 
