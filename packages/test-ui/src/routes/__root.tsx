@@ -137,7 +137,7 @@ function RootLayout() {
             placeholder="New stream path"
             value={newStreamPath}
             onChange={(e) => setNewStreamPath(e.target.value)}
-            onInput={(e) => e.key === `Enter` && void createStream()}
+            onKeyDown={(e) => e.key === `Enter` && void createStream()}
           />
           <select
             value={newStreamContentType}
