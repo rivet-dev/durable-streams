@@ -2381,7 +2381,7 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       ])
     })
 
-    test(`should work with client read() returning parsed JSON`, async () => {
+    test(`should work with client .json() method`, async () => {
       const streamPath = `/v1/stream/json-iterator-test-${Date.now()}`
 
       const stream = await DurableStream.create({
@@ -2393,14 +2393,11 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       await stream.append({ id: 2 })
       await stream.append({ id: 3 })
 
-      const results = []
-      for await (const chunk of stream.read({ live: false })) {
-        results.push(chunk.data)
-      }
+      // Use .json() to get all items
+      const results = await stream.json()
 
       // All three objects are batched together by the writer
-      // chunk.data is the parsed JSON array
-      expect(results).toEqual([[{ id: 1 }, { id: 2 }, { id: 3 }]])
+      expect(results).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
     })
 
     test(`should reject empty JSON arrays with 400`, async () => {

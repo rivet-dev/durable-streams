@@ -47,26 +47,29 @@ function RootLayout() {
       const loadedStreams: Array<Stream> = []
 
       try {
-        for await (const chunk of registryStream.read()) {
-          const data = chunk.data as Array<RegistryEvent>
+        const reader = registryStream.jsonStream({ live: false }).getReader()
 
-          for (const event of data) {
-            if (event.type === `created`) {
-              loadedStreams.push({
-                path: event.path,
-                contentType: event.contentType,
-              })
-            } else {
-              const index = loadedStreams.findIndex(
-                (s) => s.path === event.path
-              )
-              if (index !== -1) {
-                loadedStreams.splice(index, 1)
-              }
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const event = value as RegistryEvent
+          if (event.type === `created`) {
+            loadedStreams.push({
+              path: event.path,
+              contentType: event.contentType,
+            })
+          } else {
+            const index = loadedStreams.findIndex((s) => s.path === event.path)
+            if (index !== -1) {
+              loadedStreams.splice(index, 1)
             }
           }
-          setStreams(loadedStreams)
         }
+
+        reader.releaseLock()
+        setStreams(loadedStreams)
       } catch (readErr) {
         console.error(`Error reading registry stream:`, readErr)
       }

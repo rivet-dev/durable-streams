@@ -52,27 +52,55 @@ function StreamViewer() {
 
     const followStream = async () => {
       try {
-        for await (const chunk of stream.read({
-          offset: `-1`,
-          live: `long-poll`,
-          signal: controller.signal,
-        })) {
-          // Handle both Uint8Array and parsed JSON array
-          if (chunk.data instanceof Uint8Array) {
-            const text = new TextDecoder().decode(chunk.data)
-            if (text !== ``) {
+        if (isJsonStream) {
+          // Use jsonStream for JSON content
+          const reader = stream
+            .jsonStream({
+              offset: `-1`,
+              live: `long-poll`,
+              signal: controller.signal,
+            })
+            .getReader()
+
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
               setMessages((prev) => [
                 ...prev,
-                { offset: chunk.offset, data: text },
+                { offset: stream.offset || `-1`, data: JSON.stringify(value) },
               ])
             }
-          } else {
-            // For JSON arrays, add each item individually
-            const newMessages = chunk.data.map((item) => ({
-              offset: chunk.offset,
-              data: JSON.stringify(item),
-            }))
-            setMessages((prev) => [...prev, ...newMessages])
+          } finally {
+            reader.releaseLock()
+          }
+        } else {
+          // Use textStream for text/binary content
+          const reader = stream
+            .textStream({
+              offset: `-1`,
+              live: `long-poll`,
+              signal: controller.signal,
+            })
+            .getReader()
+
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              if (value !== ``) {
+                setMessages((prev) => [
+                  ...prev,
+                  { offset: stream.offset || `-1`, data: value },
+                ])
+              }
+            }
+          } finally {
+            reader.releaseLock()
           }
         }
       } catch (err: any) {

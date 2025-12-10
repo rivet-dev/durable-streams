@@ -84,10 +84,17 @@ async function readStream(streamId: string) {
 
     // Read from the stream and write to stdout
     // Default behavior: catch-up first, then auto-select live mode
-    for await (const chunk of stream.read()) {
-      if (chunk.data.length > 0) {
-        stdout.write(chunk.data)
+    const reader = stream.body().getReader()
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        stdout.write(value)
       }
+    } finally {
+      reader.releaseLock()
     }
   } catch (error) {
     if (error instanceof Error) {

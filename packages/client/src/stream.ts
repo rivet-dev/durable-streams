@@ -118,6 +118,16 @@ export class DurableStream {
    */
   contentType?: string
 
+  /**
+   * Current offset - updates as streams are consumed.
+   */
+  offset?: Offset
+
+  /**
+   * Current cursor - updates as streams are consumed.
+   */
+  cursor?: string
+
   #options: DurableStreamOptions
   readonly #fetchClient: typeof fetch
   readonly #sseFetchClient: typeof fetch
@@ -668,6 +678,220 @@ export class DurableStream {
   }
 
   /**
+   * Subscribe to JSON arrays (zero overhead, max performance).
+   * Core primitive for JSON streams.
+   *
+   * Callback receives the full JSON array plus metadata from response headers.
+   * .json() and .jsonStream() are sugar built on top of this.
+   *
+   * @param callback - Called with raw JSON array and metadata from each fetch response
+   * @param opts - Stream options
+   * @returns Unsubscribe function
+   */
+  subscribeJson<T = unknown>(
+    callback: (
+      data: Array<T>,
+      metadata: { upToDate: boolean; offset: string; cursor?: string }
+    ) => void,
+    opts?: ReadOptions
+  ): () => void {
+    const iterator = this.read(opts)[Symbol.asyncIterator]()
+    let cancelled = false
+
+    const consume = async () => {
+      try {
+        while (!cancelled) {
+          const { done, value } = await iterator.next()
+          if (done) break
+
+          // Update instance offset/cursor
+          this.offset = value.offset
+          this.cursor = value.cursor
+
+          // Call callback with raw array and metadata (zero overhead)
+          if (Array.isArray(value.data)) {
+            callback(value.data as Array<T>, {
+              upToDate: value.upToDate,
+              offset: value.offset,
+              cursor: value.cursor,
+            })
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          throw e
+        }
+      }
+    }
+
+    void consume()
+
+    return () => {
+      cancelled = true
+      iterator.return?.()
+    }
+  }
+
+  /**
+   * Get the stream as raw bytes.
+   * Similar to response.body in Fetch API.
+   *
+   * @param opts - Stream options (live mode, offset, signal)
+   * @returns ReadableStream of raw bytes
+   */
+  body(opts?: ReadOptions): ReadableStream<Uint8Array> {
+    const iterator = this.read(opts)[Symbol.asyncIterator]()
+    const stream = this
+
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await iterator.next()
+          if (done) {
+            controller.close()
+          } else {
+            // Update instance offset/cursor
+            stream.offset = value.offset
+            stream.cursor = value.cursor
+
+            // Only enqueue if it's Uint8Array (not parsed JSON)
+            if (value.data instanceof Uint8Array) {
+              controller.enqueue(value.data)
+            }
+          }
+        } catch (e) {
+          controller.error(e)
+        }
+      },
+      cancel() {
+        iterator.return?.()
+      },
+    })
+  }
+
+  /**
+   * Get JSON stream - yields individual items from JSON arrays.
+   * Sugar on top of subscribeJson().
+   *
+   * @param opts - Stream options (live mode, offset, signal)
+   * @returns ReadableStream of individual JSON items
+   */
+  jsonStream<T = unknown>(opts?: ReadOptions): ReadableStream<T> {
+    let unsubscribe: (() => void) | null = null
+
+    return new ReadableStream<T>({
+      start: (controller) => {
+        unsubscribe = this.subscribeJson<T>((array, metadata) => {
+          // Flatten: yield each item individually
+          for (const item of array) {
+            controller.enqueue(item)
+          }
+
+          // Close stream when up-to-date for non-live mode
+          if (metadata.upToDate && opts?.live === false) {
+            controller.close()
+            unsubscribe?.()
+          }
+        }, opts)
+      },
+      cancel() {
+        unsubscribe?.()
+      },
+    })
+  }
+
+  /**
+   * Get text stream - yields decoded text chunks.
+   * Similar to response.text() but returns a ReadableStream.
+   *
+   * @param opts - Stream options (live mode, offset, signal)
+   * @returns ReadableStream of text chunks
+   */
+  textStream(opts?: ReadOptions): ReadableStream<string> {
+    const iterator = this.read(opts)[Symbol.asyncIterator]()
+    const stream = this
+    const decoder = new TextDecoder()
+
+    return new ReadableStream<string>({
+      async pull(controller) {
+        try {
+          const { done, value } = await iterator.next()
+          if (done) {
+            controller.close()
+          } else {
+            // Update instance offset/cursor
+            stream.offset = value.offset
+            stream.cursor = value.cursor
+
+            // Decode to text
+            if (value.data instanceof Uint8Array) {
+              if (value.data.length > 0) {
+                controller.enqueue(decoder.decode(value.data, { stream: true }))
+              }
+            } else {
+              // JSON array - stringify
+              controller.enqueue(JSON.stringify(value.data))
+            }
+          }
+        } catch (e) {
+          controller.error(e)
+        }
+      },
+      cancel() {
+        iterator.return?.()
+      },
+    })
+  }
+
+  /**
+   * Consume entire stream and return as parsed JSON array.
+   * Similar to response.json() in Fetch API.
+   * Note: Only works with live: false (one-time read).
+   *
+   * @returns Promise resolving to JSON array
+   */
+  async json(): Promise<Array<unknown>> {
+    const reader = this.jsonStream({ live: false }).getReader()
+    const items: Array<unknown> = []
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        items.push(value)
+      }
+      return items
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
+  /**
+   * Consume entire stream and return as text.
+   * Similar to response.text() in Fetch API.
+   * Note: Only works with live: false (one-time read).
+   *
+   * @returns Promise resolving to full text content
+   */
+  async text(): Promise<string> {
+    const reader = this.textStream({ live: false }).getReader()
+    let result = ``
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        result += value
+      }
+      return result
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
+  /**
    * Wrap read() in a Web ReadableStream for piping.
    *
    * Backpressure:
@@ -706,6 +930,7 @@ export class DurableStream {
    * Wrap read() in a Web ReadableStream<Uint8Array> for piping raw bytes.
    *
    * This is the native format for many web stream APIs.
+   * Note: Only works with non-JSON streams. For JSON streams, data is parsed as arrays.
    */
   toByteStream(
     opts?: ReadOptions & { signal?: AbortSignal }
@@ -719,7 +944,10 @@ export class DurableStream {
           if (done) {
             controller.close()
           } else {
-            controller.enqueue(value.data)
+            // Only enqueue if it's actually Uint8Array (not parsed JSON)
+            if (value.data instanceof Uint8Array) {
+              controller.enqueue(value.data)
+            }
           }
         } catch (e) {
           controller.error(e)
@@ -730,21 +958,6 @@ export class DurableStream {
         iterator.return?.()
       },
     })
-  }
-
-  /**
-   * Convenience: interpret data as text (UTF-8).
-   */
-  async *text(
-    opts?: ReadOptions & { decoder?: TextDecoder }
-  ): AsyncIterable<string> {
-    const decoder = opts?.decoder ?? new TextDecoder()
-
-    for await (const chunk of this.read(opts)) {
-      if (chunk.data.length > 0) {
-        yield decoder.decode(chunk.data, { stream: true })
-      }
-    }
   }
 
   // ============================================================================
