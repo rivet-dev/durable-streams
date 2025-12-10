@@ -136,10 +136,6 @@ The Test UI and CLI share the same `__registry__` system stream, so streams crea
 
 For applications that only need to read from streams:
 
-```bash
-npm install @durable-streams/client
-```
-
 ```typescript
 import { DurableStream } from "@durable-streams/client"
 
@@ -155,10 +151,6 @@ console.log(new TextDecoder().decode(result.data))
 ### Read/write client
 
 For applications that need to create and write to streams:
-
-```bash
-npm install @durable-streams/writer
-```
 
 ```typescript
 import { DurableStream } from "@durable-streams/writer"
@@ -457,10 +449,6 @@ runConformanceTests({
 
 ### Node.js Reference Server
 
-```bash
-npm install @durable-streams/server
-```
-
 ```typescript
 import { createDurableStreamServer } from "@durable-streams/server"
 
@@ -478,8 +466,6 @@ See [@durable-streams/server](./packages/server) for more details.
 ## CLI Tool
 
 ```bash
-npm install -g @durable-streams/cli
-
 # Set the server URL (defaults to http://localhost:8787)
 export STREAM_URL=https://your-server.com
 ```
