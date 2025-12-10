@@ -48,7 +48,7 @@ AI Sessions provides a high-level API for building AI chat interfaces and agenti
 
 ### defineSession
 
-Creates a session configuration with schemas and server functions.
+Creates a session configuration with schemas and server functions. Actions are **auto-generated** from serverFns based on naming conventions.
 
 ```typescript
 import { defineSession } from "@tanstack/ai-sessions"
@@ -66,26 +66,81 @@ const customDataSchema = z.object({
 export const chatSessionConfig = defineSession({
   // Schema defines entity types in the session stream
   schema: {
-    // Built-in types (can be extended/overridden)
     messages: messageSchema,
     tool_calls: toolCallSchema,
-    // Custom types
     custom_data: customDataSchema,
   },
 
-  // Server functions - imported as references, called from client
+  // Server functions - naming convention drives auto-generated actions
+  // sendMessage → actions.sendMessage (insert into messages)
+  // updateMessage → actions.updateMessage (update in messages)
+  // deleteMessage → actions.deleteMessage (delete from messages)
   serverFns: {
-    sendMessage,      // (input) => Promise<{ txid }>
-    createUser,
-    updateSettings,
+    sendMessage,
+    updateMessage,
+    createToolCall,
+    updateToolCall,
     // ...
+  },
+})
+```
+
+### Naming Convention for Auto-Generated Actions
+
+| ServerFn Name | Generated Action | Operation | Collection |
+|---------------|------------------|-----------|------------|
+| `sendFoo` / `createFoo` | `actions.sendFoo` / `actions.createFoo` | insert | `foos` |
+| `updateFoo` | `actions.updateFoo` | update | `foos` |
+| `deleteFoo` | `actions.deleteFoo` | delete | `foos` |
+
+The schema type must exist (e.g., `foos` in schema for `sendFoo` to work). Types are fully inferred - the action input/output types come from the serverFn signature, and the optimistic mutation types come from the schema.
+
+### Custom Actions (Escape Hatch)
+
+For complex mutations that touch multiple collections or need custom logic, use TanStack DB's `createOptimisticAction`:
+
+```typescript
+import { createOptimisticAction } from "@tanstack/react-db"
+
+export const chatSessionConfig = defineSession({
+  schema: { projects, tasks, users },
+  serverFns: { createProjectWithTasks },
+
+  // Custom actions for complex cases
+  actions: {
+    createProjectWithTasks: createOptimisticAction({
+      onMutate: ({ name, tasks, ownerId }) => {
+        const projectId = crypto.randomUUID()
+
+        // Multi-collection optimistic update
+        collections.projects.insert({ id: projectId, name, ownerId })
+        tasks.forEach((text, i) => {
+          collections.tasks.insert({
+            id: crypto.randomUUID(),
+            projectId,
+            text,
+            order: i,
+          })
+        })
+        collections.users.update(ownerId, (draft) => {
+          draft.projectCount += 1
+        })
+
+        return { projectId }  // Context for mutationFn
+      },
+      mutationFn: async (input, { context }) => {
+        const txid = crypto.randomUUID()
+        await serverFns.createProjectWithTasks({ ...input, txid })
+        await awaitTxid(txid)
+      },
+    }),
   },
 })
 ```
 
 ### useSession Hook
 
-React hook that connects to a session and provides collections + helpers.
+React hook that connects to a session and provides collections + auto-generated actions.
 
 ```typescript
 import { useSession } from "@tanstack/ai-sessions-react"
@@ -96,10 +151,8 @@ function ChatUI({ sessionId }: { sessionId: string }) {
     // TanStack DB collections - one per schema type
     collections,
 
-    // Generated helpers that wrap optimistic mutation + serverFn + awaitTxid
-    sendMessage,
-    createUser,
-    updateSettings,
+    // Auto-generated actions from serverFns
+    actions,
 
     // Status
     isLoading,
@@ -118,14 +171,15 @@ function ChatUI({ sessionId }: { sessionId: string }) {
     (q) => q.where("status", "==", "running")
   )
 
-  // Mutations are simple - helper abstracts the complexity
+  // Actions are type-safe and handle everything automatically
   const handleSend = async (text: string) => {
-    await sendMessage({ text })
-    // That's it! Under the hood:
-    // 1. Optimistic insert into collections.messages
-    // 2. Call serverFns.sendMessage({ text, txid })
-    // 3. Await txid in stream
-    // 4. Confirm optimistic state
+    await actions.sendMessage({ text })
+    // Under the hood:
+    // 1. Generate id + txid
+    // 2. Optimistic insert into collections.messages
+    // 3. Call serverFns.sendMessage({ id, text, txid })
+    // 4. Await txid in stream
+    // 5. Confirm optimistic state (or rollback on error)
   }
 
   return (
