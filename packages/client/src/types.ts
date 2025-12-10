@@ -257,6 +257,37 @@ export interface ReadResult {
 export interface StreamChunk extends ReadResult {}
 
 /**
+ * Metadata extracted from a stream response.
+ * Contains headers and control information from the stream server.
+ */
+export interface ResponseMetadata {
+  /**
+   * Next offset to read from (stream-offset header).
+   */
+  offset: string
+
+  /**
+   * Cursor for CDN collapsing (stream-cursor header).
+   */
+  cursor?: string
+
+  /**
+   * True if stream-up-to-date header was present.
+   */
+  upToDate: boolean
+
+  /**
+   * ETag for caching.
+   */
+  etag?: string
+
+  /**
+   * Content type of the stream.
+   */
+  contentType?: string
+}
+
+/**
  * Error codes for DurableStreamError.
  */
 export type DurableStreamErrorCode =
