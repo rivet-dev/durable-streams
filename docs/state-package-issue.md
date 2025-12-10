@@ -934,66 +934,262 @@ This means `@durable-streams/state` should be designed to:
    - Rollback on failure
    - Add in future version
 
-## Use Cases (from Blog Post)
+## Use Cases & Example Applications
 
-The State Protocol enables these patterns mentioned in the announcement:
+These examples demonstrate the flexibility of the State Protocol and serve as candidates for integration tests.
 
-### Database Synchronization
-> Stream row changes with guaranteed ordering and resumability (the mechanism Electric uses to ship updates to clients)
+### 1. Key/Value Store
+A simple synced key/value store with optimistic mutations.
 
 ```typescript
-// Postgres adapter streams changes using State Protocol
-for await (const event of postgresStream.events<UserRow>()) {
-  if (event.headers.operation === "insert") {
-    localDb.insert(event.key, event.value)
-  } else if (event.headers.operation === "update") {
-    localDb.update(event.key, event.value)
-  } else if (event.headers.operation === "delete") {
-    localDb.delete(event.key)
+const kvSchema = defineStreamSchema({
+  types: {
+    entries: z.object({
+      id: z.string(),
+      value: z.unknown(),
+      expiresAt: z.string().datetime().optional(),
+    })
+  }
+})
+
+// Usage with TanStack DB - optimistic set/get/delete
+await kv.set("user:123:prefs", { theme: "dark", lang: "en" })
+const prefs = kv.get("user:123:prefs")
+await kv.delete("user:123:prefs")
+```
+
+### 2. Presence API
+Track who's online in a room/channel with heartbeats.
+
+```typescript
+const presenceSchema = defineStreamSchema({
+  types: {
+    presence: z.object({
+      id: z.string(),           // {userId}
+      userName: z.string(),
+      status: z.enum(["online", "away", "busy"]),
+      lastSeen: z.string().datetime(),
+      metadata: z.record(z.unknown()).optional(),  // cursor position, etc.
+    })
+  }
+})
+
+// One stream per room - insert on join, update on heartbeat, delete on leave
+// Timeout is client-side: filter by lastSeen
+const activeUsers = presence.rows.filter(
+  p => Date.now() - new Date(p.lastSeen).getTime() < 60_000
+)
+```
+
+### 3. Chat Room (multi-type)
+One stream per room with messages, users, reactions, and read receipts.
+
+```typescript
+const chatRoomSchema = defineStreamSchema({
+  types: {
+    users: z.object({
+      id: z.string(),
+      name: z.string(),
+      avatar: z.string().optional(),
+      joinedAt: z.string().datetime(),
+    }),
+    messages: z.object({
+      id: z.string(),
+      text: z.string(),
+      userId: z.string(),
+      createdAt: z.string().datetime(),
+      editedAt: z.string().datetime().optional(),
+    }),
+    reactions: z.object({
+      id: z.string(),           // {userId}:{messageId}:{emoji}
+      messageId: z.string(),
+      userId: z.string(),
+      emoji: z.string(),
+    }),
+    read_receipts: z.object({
+      id: z.string(),           // {userId}
+      userId: z.string(),
+      lastReadMessageId: z.string(),
+      lastReadAt: z.string().datetime(),
+    }),
+  }
+})
+```
+
+### 4. Feature Flags / Remote Config
+Real-time feature flags that propagate instantly to all clients.
+
+```typescript
+const configSchema = defineStreamSchema({
+  types: {
+    flags: z.object({
+      id: z.string(),           // flag name
+      enabled: z.boolean(),
+      rolloutPercent: z.number().min(0).max(100).optional(),
+      allowlist: z.array(z.string()).optional(),
+      metadata: z.record(z.unknown()).optional(),
+    })
+  }
+})
+
+// One global stream - all clients subscribe
+// Updates propagate instantly to all connected clients
+// Great for A/B testing, gradual rollouts, kill switches
+```
+
+### 5. Todo List / Kanban Board
+Collaborative task management with columns and cards.
+
+```typescript
+const kanbanSchema = defineStreamSchema({
+  types: {
+    columns: z.object({
+      id: z.string(),
+      name: z.string(),
+      position: z.number(),
+    }),
+    cards: z.object({
+      id: z.string(),
+      columnId: z.string(),
+      title: z.string(),
+      description: z.string().optional(),
+      position: z.number(),
+      assigneeId: z.string().optional(),
+      dueDate: z.string().datetime().optional(),
+    }),
+  }
+})
+// One stream per board - real-time collaboration
+```
+
+### 6. Notification Feed
+User notifications with read/unread state.
+
+```typescript
+const notificationSchema = defineStreamSchema({
+  types: {
+    notifications: z.object({
+      id: z.string(),
+      type: z.enum(["mention", "reply", "like", "follow", "system"]),
+      title: z.string(),
+      body: z.string().optional(),
+      link: z.string().optional(),
+      read: z.boolean(),
+      createdAt: z.string().datetime(),
+    })
+  }
+})
+// One stream per user - replay for history, live tail for new notifications
+```
+
+### 7. Audit Log (insert-only)
+Immutable event log for compliance and debugging.
+
+```typescript
+const auditSchema = defineStreamSchema({
+  types: {
+    events: z.object({
+      id: z.string(),
+      action: z.string(),           // "user.created", "document.deleted"
+      actorId: z.string(),
+      targetType: z.string(),
+      targetId: z.string(),
+      metadata: z.record(z.unknown()),
+      timestamp: z.string().datetime(),
+    })
+  }
+})
+// Insert only - no updates or deletes (immutable log)
+// Replay and filter for queries
+```
+
+### 8. Shopping Cart (cross-device sync)
+Cart that syncs across phone, tablet, and desktop.
+
+```typescript
+const cartSchema = defineStreamSchema({
+  types: {
+    items: z.object({
+      id: z.string(),           // product:{productId}
+      productId: z.string(),
+      name: z.string(),
+      price: z.number(),
+      quantity: z.number(),
+      addedAt: z.string().datetime(),
+    })
+  }
+})
+// One stream per user's cart - syncs across all devices
+```
+
+## Syncing State to Databases
+
+For long streams or complex queries, you may want to persist state to a database rather than materializing in memory each time.
+
+### Pattern: Persistent Sync Worker
+
+A background process that consumes the stream and writes to a database:
+
+```typescript
+async function syncToDatabase(stream: DurableStream, db: Database) {
+  // Resume from last synced offset
+  const lastOffset = await db.query(
+    "SELECT offset FROM _sync_state WHERE stream_url = ?",
+    [stream.url]
+  ) ?? "-1"
+
+  for await (const chunk of stream.read({ offset: lastOffset })) {
+    await db.transaction(async (tx) => {
+      for (const event of parseEvents(chunk.data)) {
+        if (!isChangeEvent(event)) continue
+
+        const table = event.type  // type maps to table name
+
+        switch (event.headers.operation) {
+          case "insert":
+          case "update":
+            // Upsert - idempotent for replay
+            await tx.query(`
+              INSERT INTO ${table} (id, data, updated_at)
+              VALUES (?, ?, NOW())
+              ON CONFLICT (id) DO UPDATE SET data = ?, updated_at = NOW()
+            `, [event.key, event.value, event.value])
+            break
+          case "delete":
+            await tx.query(`DELETE FROM ${table} WHERE id = ?`, [event.key])
+            break
+        }
+      }
+
+      // Update sync checkpoint
+      await tx.query(`
+        INSERT INTO _sync_state (stream_url, offset, synced_at)
+        VALUES (?, ?, NOW())
+        ON CONFLICT (stream_url) DO UPDATE SET offset = ?, synced_at = NOW()
+      `, [stream.url, chunk.offset, chunk.offset])
+    })
   }
 }
 ```
 
-### Event Sourcing
-> Deliver immutable logs clients can replay from any point in time
+### Target Databases
 
-```typescript
-// Replay entire event history to rebuild state
-const state = await materializeAsync(
-  stream.events<Order>({ offset: "-1", live: false })
-)
-```
+- **SQLite / IndexedDB** - Client-side for offline-first apps
+- **PostgreSQL / MySQL** - Server-side for SQL queries, joins, analytics
+- **Redis** - Cache layer for high-read scenarios
+- **Elasticsearch / Typesense** - Full-text search over stream data
 
-### Agentic Apps
-> Stream tool outputs and progress events with replay and clean reconnect semantics
+### Key Considerations
 
-```typescript
-// Agent session with structured state changes
-await stream.append(insert("step-1", {
-  type: "tool_call",
-  tool: "web_search",
-  input: { query: "weather NYC" },
-  status: "pending"
-}))
-
-await stream.append(update("step-1", {
-  type: "tool_call",
-  tool: "web_search",
-  input: { query: "weather NYC" },
-  status: "completed",
-  output: { temperature: 72, conditions: "sunny" }
-}))
-```
-
-### Real-time Collaboration
-> Deliver CRDT / OT updates with replayable history and clean reconnects
-
-The State Protocol could be composed with CRDT libraries where each operation is tracked as an insert/update/delete event.
+1. **Idempotency**: Use `(type, key)` as primary key with upsert semantics
+2. **Offset tracking**: Store last processed offset, resume on restart
+3. **Schema generation**: Could generate CREATE TABLE from StreamSchema
 
 ## References
 
 - [Announcing Durable Streams (Blog Post)](https://electric-sql.com/blog/2025/12/09/announcing-durable-streams)
+- [Standard Schema Specification](https://standardschema.dev/)
+- [TanStack DB Documentation](https://tanstack.com/db/latest)
 - [Electric SQL TypeScript Client](https://github.com/electric-sql/electric/tree/main/packages/typescript-client)
-- [Electric Shape API](https://electric-sql.com/docs/api/clients/typescript)
 - [Durable Streams Protocol](./PROTOCOL.md)
 - [Durable Streams GitHub](https://github.com/durable-streams/durable-streams)
