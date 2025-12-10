@@ -466,13 +466,15 @@ For **shared, non-user-specific streams**, servers **SHOULD** return:
 Cache-Control: public, max-age=60, stale-while-revalidate=300
 ```
 
-For **streams that may contain user-specific or confidential data**, servers **SHOULD** use `private` instead of `public` and rely on CDN configurations that respect `Authorization` or other cache keys:
+For **streams that require authentication**, the recommended pattern is to run behind an authorizing proxy that validates credentials before requests reach the CDN or stream server. See Section 8.3 for details.
+
+Once authorization is handled by the proxy, responses can use standard public caching:
 
 ```
-Cache-Control: private, max-age=60, stale-while-revalidate=300
+Cache-Control: public, max-age=60, stale-while-revalidate=300
 ```
 
-This enables CDN/proxy caching while allowing stale content to be served during revalidation.
+**Note on `Vary` header:** The authorizing proxy **SHOULD** add `Vary: Authorization` to responses. This header is used by **browser caches** to isolate cached data between sessions—if a user logs out and logs in as a different user, the browser will not serve cached data from the previous session. However, most CDNs ignore `Vary` (except `Accept-Encoding`), so do not rely on it for CDN cache isolation. CDN isolation is handled by the proxy authentication pattern (Section 8.3) where authorization happens before requests reach the cache layer.
 
 **ETag Usage:**
 
@@ -489,6 +491,62 @@ CDNs and proxies **SHOULD NOT** cache `204 No Content` responses from long-poll 
 ### 8.2. SSE
 
 SSE connections **SHOULD** be closed by the server approximately every 60 seconds. This enables new clients to collapse onto edge requests rather than maintaining long-lived connections to origin servers.
+
+### 8.3. Authentication and Caching
+
+When streams require authentication, implementers **MUST** consider the interaction between authentication and caching to prevent security vulnerabilities.
+
+#### Proxy Authentication Pattern
+
+The recommended pattern for authenticated streams is to run the Durable Streams server behind an authorizing proxy. The proxy:
+
+1. Receives requests with authentication credentials (e.g., `Authorization: Bearer <token>`)
+2. Validates the credentials against your authentication system
+3. If authorized, forwards the request to the stream server (optionally stripping the auth header)
+4. If unauthorized, returns `401 Unauthorized` or `403 Forbidden`
+
+This pattern keeps authentication logic centralized and allows the stream server to focus on data delivery. Critically, authorization happens **before** requests reach the CDN cache layer, so all cached responses are for authorized requests only.
+
+#### Gatekeeper Authentication Pattern
+
+For more advanced scenarios, the gatekeeper pattern separates token generation from request authorization:
+
+1. Client authenticates with a gatekeeper endpoint, providing credentials and the desired stream/resource
+2. Gatekeeper validates access and returns a signed token (e.g., JWT) containing claims about what the client can access
+3. Client includes the token when making stream requests through an authorizing proxy
+4. Proxy validates the token signature and checks that the token's claims match the requested resource
+5. If valid, proxy forwards to the stream server; otherwise returns `403 Forbidden`
+
+This pattern is beneficial because authorization logic runs once during token generation rather than on every request, and multiple users authorized for the same resource can share cached responses.
+
+#### Cache Architecture
+
+With either pattern, the architecture is:
+
+```
+Client → Authorizing Proxy → CDN → Stream Server
+```
+
+The proxy validates credentials/tokens before requests reach the CDN. This means:
+
+- The CDN only sees authorized requests
+- Cache keys are based on the resource (stream URL, offset, cursor), not user identity
+- Multiple authorized users requesting the same data share cached responses
+- Unauthorized requests never reach the cache or origin
+
+The proxy **SHOULD** add `Vary: Authorization` to responses for browser cache isolation between login sessions (see Section 8.1).
+
+#### When Data is User-Specific
+
+If stream data is inherently user-specific (e.g., a stream URL like `/streams/user/{user_id}/events`), the URL itself provides cache isolation. Each user's stream is a different resource with a different cache key.
+
+For truly private data that should not be cached by CDNs, use:
+
+```
+Cache-Control: private
+```
+
+This allows browser caching only.
 
 ## 9. Extensibility
 
@@ -515,6 +573,8 @@ See Section 10.1 for authentication and authorization details. Implementations *
 ### 10.1. Authentication and Authorization
 
 Authentication and authorization are explicitly out of scope for this protocol specification. Clients **SHOULD** implement all standard HTTP authentication primitives (e.g., Basic Authentication [RFC7617], Bearer tokens [RFC6750], Digest Authentication [RFC7616]). Implementations **MUST** provide appropriate access controls to prevent unauthorized stream creation, modification, or deletion, but may do so using any mechanism they choose, including extending the protocol with authentication-related parameters or headers as described in Section 9.2.
+
+**Important:** When implementing authentication with caching, servers **MUST** follow the guidance in Section 8.3 to prevent cache-based security vulnerabilities. The recommended approach is to validate authorization in a proxy layer before requests reach the CDN, rather than relying on cache headers for user isolation.
 
 ### 10.2. Multi-tenant Safety
 
