@@ -9,6 +9,14 @@ const alias = {
     __dirname,
     "./packages/conformance-tests/src"
   ),
+  "@durable-streams/promises": path.resolve(
+    __dirname,
+    "./packages/promises/src"
+  ),
+  "@durable-streams/deferred": path.resolve(
+    __dirname,
+    "./packages/deferred/src"
+  ),
 }
 
 export default defineConfig({
@@ -25,6 +33,27 @@ export default defineConfig({
         test: {
           name: "server",
           include: ["packages/server/**/*.test.ts"],
+        },
+        resolve: { alias },
+      }),
+      defineProject({
+        test: {
+          name: "writer",
+          include: ["packages/writer/**/*.test.ts"],
+        },
+        resolve: { alias },
+      }),
+      defineProject({
+        test: {
+          name: "promises",
+          include: ["packages/promises/**/*.test.ts"],
+        },
+        resolve: { alias },
+      }),
+      defineProject({
+        test: {
+          name: "deferred",
+          include: ["packages/deferred/**/*.test.ts"],
         },
         resolve: { alias },
       }),

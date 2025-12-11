@@ -1,0 +1,44 @@
+{
+  "name": "@durable-streams/promises",
+  "version": "0.0.0",
+  "description": "Promise combinators for Durable Streams - extract single values from streams",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": [
+    "durable",
+    "stream",
+    "promise",
+    "combinator",
+    "async",
+    "iterable"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/durable-streams/durable-streams.git",
+    "directory": "packages/promises"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@durable-streams/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@durable-streams/server": "workspace:*",
+    "@durable-streams/writer": "workspace:*"
+  }
+}

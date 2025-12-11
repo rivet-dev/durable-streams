@@ -1,0 +1,44 @@
+{
+  "name": "@durable-streams/deferred",
+  "version": "0.0.0",
+  "description": "DurableDeferred - distributed promises that survive process restarts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": [
+    "durable",
+    "stream",
+    "deferred",
+    "promise",
+    "distributed",
+    "async"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/durable-streams/durable-streams.git",
+    "directory": "packages/deferred"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@durable-streams/client": "workspace:*",
+    "@durable-streams/writer": "workspace:*"
+  },
+  "devDependencies": {
+    "@durable-streams/server": "workspace:*"
+  }
+}

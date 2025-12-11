@@ -136,6 +136,32 @@ importers:
         specifier: ^5.0.0
         version: 5.9.3
 
+  packages/deferred:
+    dependencies:
+      '@durable-streams/client':
+        specifier: workspace:*
+        version: link:../client
+      '@durable-streams/writer':
+        specifier: workspace:*
+        version: link:../writer
+    devDependencies:
+      '@durable-streams/server':
+        specifier: workspace:*
+        version: link:../server
+
+  packages/promises:
+    dependencies:
+      '@durable-streams/client':
+        specifier: workspace:*
+        version: link:../client
+    devDependencies:
+      '@durable-streams/server':
+        specifier: workspace:*
+        version: link:../server
+      '@durable-streams/writer':
+        specifier: workspace:*
+        version: link:../writer
+
   packages/server:
     dependencies:
       '@durable-streams/writer':
