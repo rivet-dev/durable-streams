@@ -4,6 +4,8 @@
  * Following the Electric Durable Stream Protocol specification.
  */
 
+import fastq from "fastq"
+
 import { InvalidSignalError, MissingStreamUrlError } from "./error"
 import {
   STREAM_EXPIRES_AT_HEADER,
@@ -18,6 +20,8 @@ import {
 } from "./fetch"
 import { stream as streamFn } from "./stream-api"
 import { handleErrorResponse, resolveHeaders, resolveValue } from "./utils"
+import type { BackoffOptions } from "./fetch"
+import type { queueAsPromised } from "fastq"
 import type {
   AppendOptions,
   CreateOptions,
@@ -29,7 +33,25 @@ import type {
   StreamResponse,
 } from "./types"
 
-import type { BackoffOptions } from "./fetch"
+/**
+ * Queued message for batching.
+ */
+interface QueuedMessage {
+  data: unknown
+  seq?: string
+  contentType?: string
+  resolve: () => void
+  reject: (error: Error) => void
+}
+
+/**
+ * Normalize content-type by extracting the media type (before any semicolon).
+ * Handles cases like "application/json; charset=utf-8".
+ */
+function normalizeContentType(contentType: string | undefined): string {
+  if (!contentType) return ``
+  return contentType.split(`;`)[0]!.trim().toLowerCase()
+}
 
 /**
  * Options for DurableStream constructor.
@@ -46,6 +68,15 @@ export interface DurableStreamOptions extends StreamHandleOptions {
    * Backoff options for retry behavior.
    */
   backoffOptions?: BackoffOptions
+
+  /**
+   * Enable automatic batching for append() calls.
+   * When true, multiple append() calls made while a POST is in-flight
+   * will be batched together into a single request.
+   *
+   * @default true
+   */
+  batching?: boolean
 }
 
 /**
@@ -91,6 +122,11 @@ export class DurableStream {
   readonly #fetchClient: typeof fetch
   #onError?: StreamErrorHandler
 
+  // Batching infrastructure
+  #batchingEnabled: boolean
+  #queue?: queueAsPromised<Array<QueuedMessage>>
+  #buffer: Array<QueuedMessage> = []
+
   /**
    * Create a cold handle to a stream.
    * No network IO is performed by the constructor.
@@ -101,6 +137,13 @@ export class DurableStream {
     this.url = urlStr
     this.#options = { ...opts, url: urlStr }
     this.#onError = opts.onError
+
+    // Batching is enabled by default
+    this.#batchingEnabled = opts.batching !== false
+
+    if (this.#batchingEnabled) {
+      this.#queue = fastq.promise(this.#batchWorker.bind(this), 1)
+    }
 
     const baseFetchClient =
       opts.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
@@ -261,12 +304,29 @@ export class DurableStream {
   /**
    * Append a single payload to the stream.
    *
-   * - `body` may be Uint8Array, string, or any Fetch BodyInit.
+   * When batching is enabled (default), multiple append() calls made while
+   * a POST is in-flight will be batched together into a single request.
+   * This significantly improves throughput for high-frequency writes.
+   *
+   * - `body` may be Uint8Array, string, or any JSON-serializable value (for JSON streams).
    * - Strings are encoded as UTF-8.
    * - `seq` (if provided) is sent as stream-seq (writer coordination).
    */
   async append(
-    body: BodyInit | Uint8Array | string,
+    body: BodyInit | Uint8Array | string | unknown,
+    opts?: AppendOptions
+  ): Promise<void> {
+    if (this.#batchingEnabled && this.#queue) {
+      return this.#appendWithBatching(body, opts)
+    }
+    return this.#appendDirect(body, opts)
+  }
+
+  /**
+   * Direct append without batching (used when batching is disabled).
+   */
+  async #appendDirect(
+    body: BodyInit | Uint8Array | string | unknown,
     opts?: AppendOptions
   ): Promise<void> {
     const { requestHeaders, fetchUrl } = await this.#buildRequest()
@@ -296,11 +356,169 @@ export class DurableStream {
   }
 
   /**
+   * Append with batching - buffers messages and sends them in batches.
+   */
+  async #appendWithBatching(
+    body: unknown,
+    opts?: AppendOptions
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.#buffer.push({
+        data: body,
+        seq: opts?.seq,
+        contentType: opts?.contentType,
+        resolve,
+        reject,
+      })
+
+      // If no POST in flight, send immediately
+      if (this.#queue!.idle()) {
+        const batch = this.#buffer.splice(0)
+        this.#queue!.push(batch).catch((err) => {
+          for (const msg of batch) msg.reject(err)
+        })
+      }
+    })
+  }
+
+  /**
+   * Batch worker - processes batches of messages.
+   */
+  async #batchWorker(batch: Array<QueuedMessage>): Promise<void> {
+    try {
+      await this.#sendBatch(batch)
+
+      // Resolve all messages in the batch
+      for (const msg of batch) {
+        msg.resolve()
+      }
+
+      // Send accumulated batch if any
+      if (this.#buffer.length > 0) {
+        const nextBatch = this.#buffer.splice(0)
+        this.#queue!.push(nextBatch).catch((err) => {
+          for (const msg of nextBatch) msg.reject(err)
+        })
+      }
+    } catch (error) {
+      // Reject current batch
+      for (const msg of batch) {
+        msg.reject(error as Error)
+      }
+      // Also reject buffered messages (don't leave promises hanging)
+      for (const msg of this.#buffer) {
+        msg.reject(error as Error)
+      }
+      this.#buffer = []
+      throw error
+    }
+  }
+
+  /**
+   * Send a batch of messages as a single POST request.
+   */
+  async #sendBatch(batch: Array<QueuedMessage>): Promise<void> {
+    if (batch.length === 0) return
+
+    const { requestHeaders, fetchUrl } = await this.#buildRequest()
+
+    // Get content type - prefer from options, then from messages, then from stream
+    const contentType =
+      batch[0]?.contentType ?? this.#options.contentType ?? this.contentType
+
+    if (contentType) {
+      requestHeaders[`content-type`] = contentType
+    }
+
+    // Get last non-undefined seq (queue preserves append order)
+    let highestSeq: string | undefined
+    for (let i = batch.length - 1; i >= 0; i--) {
+      if (batch[i]!.seq !== undefined) {
+        highestSeq = batch[i]!.seq
+        break
+      }
+    }
+
+    if (highestSeq) {
+      requestHeaders[STREAM_SEQ_HEADER] = highestSeq
+    }
+
+    const isJson = normalizeContentType(contentType) === `application/json`
+
+    // Batch data based on content type
+    let batchedBody: BodyInit
+    if (isJson) {
+      // For JSON mode: always send as array (server flattens one level)
+      // Single append: [value] → server stores value
+      // Multiple appends: [val1, val2] → server stores val1, val2
+      const values = batch.map((m) => m.data)
+      batchedBody = JSON.stringify(values)
+    } else {
+      // For byte mode: concatenate all chunks
+      const totalSize = batch.reduce((sum, m) => {
+        const size =
+          typeof m.data === `string`
+            ? new TextEncoder().encode(m.data).length
+            : (m.data as Uint8Array).length
+        return sum + size
+      }, 0)
+
+      const concatenated = new Uint8Array(totalSize)
+      let offset = 0
+      for (const msg of batch) {
+        const bytes =
+          typeof msg.data === `string`
+            ? new TextEncoder().encode(msg.data)
+            : (msg.data as Uint8Array)
+        concatenated.set(bytes, offset)
+        offset += bytes.length
+      }
+      batchedBody = concatenated
+    }
+
+    const response = await this.#fetchClient(fetchUrl.toString(), {
+      method: `POST`,
+      headers: requestHeaders,
+      body: batchedBody,
+      signal: this.#options.signal,
+    })
+
+    if (!response.ok) {
+      await handleErrorResponse(response, this.url)
+    }
+  }
+
+  /**
    * Append a streaming body to the stream.
    *
+   * Supports piping from any ReadableStream or async iterable:
    * - `source` yields Uint8Array or string chunks.
    * - Strings are encoded as UTF-8; no delimiters are added.
    * - Internally uses chunked transfer or HTTP/2 streaming.
+   *
+   * @example
+   * ```typescript
+   * // Pipe from a ReadableStream
+   * const readable = new ReadableStream({
+   *   start(controller) {
+   *     controller.enqueue("chunk 1");
+   *     controller.enqueue("chunk 2");
+   *     controller.close();
+   *   }
+   * });
+   * await stream.appendStream(readable);
+   *
+   * // Pipe from an async generator
+   * async function* generate() {
+   *   yield "line 1\n";
+   *   yield "line 2\n";
+   * }
+   * await stream.appendStream(generate());
+   *
+   * // Pipe from fetch response body
+   * const response = await fetch("https://example.com/data");
+   * await stream.appendStream(response.body!);
+   * ```
    */
   async appendStream(
     source:
@@ -320,7 +538,7 @@ export class DurableStream {
       requestHeaders[STREAM_SEQ_HEADER] = opts.seq
     }
 
-    // Convert to ReadableStream if needed
+    // Convert to ReadableStream<Uint8Array> for the body
     const body = toReadableStream(source)
 
     const response = await this.#fetchClient(fetchUrl.toString(), {
@@ -335,6 +553,51 @@ export class DurableStream {
     if (!response.ok) {
       await handleErrorResponse(response, this.url)
     }
+  }
+
+  /**
+   * Create a writable stream that pipes data to this durable stream.
+   *
+   * Returns a WritableStream that can be used with `pipeTo()` or
+   * `pipeThrough()` from any ReadableStream source.
+   *
+   * @example
+   * ```typescript
+   * // Pipe from fetch response
+   * const response = await fetch("https://example.com/data");
+   * await response.body!.pipeTo(stream.writable());
+   *
+   * // Pipe through a transform
+   * const readable = someStream.pipeThrough(new TextEncoderStream());
+   * await readable.pipeTo(stream.writable());
+   * ```
+   */
+  writable(opts?: AppendOptions): WritableStream<Uint8Array | string> {
+    const chunks: Array<Uint8Array | string> = []
+    const stream = this
+
+    return new WritableStream<Uint8Array | string>({
+      write(chunk) {
+        chunks.push(chunk)
+      },
+      async close() {
+        if (chunks.length > 0) {
+          // Create a ReadableStream from collected chunks
+          const readable = new ReadableStream<Uint8Array | string>({
+            start(controller) {
+              for (const chunk of chunks) {
+                controller.enqueue(chunk)
+              }
+              controller.close()
+            },
+          })
+          await stream.appendStream(readable, opts)
+        }
+      },
+      abort(reason) {
+        console.error(`WritableStream aborted:`, reason)
+      },
+    })
   }
 
   // ============================================================================
@@ -429,9 +692,10 @@ export class DurableStream {
 /**
  * Encode a body value to the appropriate format.
  * Strings are encoded as UTF-8.
+ * Objects are JSON-serialized.
  */
 function encodeBody(
-  body: BodyInit | Uint8Array | string | undefined
+  body: BodyInit | Uint8Array | string | unknown | undefined
 ): BodyInit | undefined {
   if (body === undefined) {
     return undefined
@@ -443,7 +707,18 @@ function encodeBody(
     // Cast to ensure compatible BodyInit type
     return body as unknown as BodyInit
   }
-  return body
+  // Check for BodyInit types (Blob, FormData, ReadableStream, ArrayBuffer, etc.)
+  if (
+    body instanceof Blob ||
+    body instanceof FormData ||
+    body instanceof ReadableStream ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
+  ) {
+    return body as BodyInit
+  }
+  // For other types (objects, arrays, numbers, etc.), JSON-serialize
+  return new TextEncoder().encode(JSON.stringify(body))
 }
 
 /**

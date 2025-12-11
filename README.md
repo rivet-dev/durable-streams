@@ -57,8 +57,7 @@ The protocol provides:
 
 This monorepo contains:
 
-- **[@durable-streams/client](./packages/client)** - TypeScript read-only client (smaller bundle)
-- **[@durable-streams/writer](./packages/writer)** - TypeScript read/write client (includes create/append/delete operations)
+- **[@durable-streams/client](./packages/client)** - TypeScript client with full read/write support and automatic batching
 - **[@durable-streams/server](./packages/server)** - Node.js reference server implementation
 - **[@durable-streams/cli](./packages/cli)** - Command-line tool
 - **[@durable-streams/test-ui](./packages/test-ui)** - Visual web interface for testing and exploring streams
@@ -132,28 +131,12 @@ The Test UI and CLI share the same `__registry__` system stream, so streams crea
 
 ## Quick Start
 
-### Read-only client (typical browser/mobile usage)
+### Full read/write client
 
-For applications that only need to read from streams:
+The `@durable-streams/client` package provides full read/write support with automatic batching for high-throughput writes:
 
 ```typescript
 import { DurableStream } from "@durable-streams/client"
-
-const stream = new DurableStream({
-  url: "https://your-server.com/v1/stream/my-stream",
-})
-
-// Read existing data from stream (returns immediately)
-const result = await stream.read({ live: false })
-console.log(new TextDecoder().decode(result.data))
-```
-
-### Read/write client
-
-For applications that need to create and write to streams:
-
-```typescript
-import { DurableStream } from "@durable-streams/writer"
 
 // Create a new stream
 const stream = await DurableStream.create({
@@ -161,23 +144,42 @@ const stream = await DurableStream.create({
   contentType: "application/json",
 })
 
-// Append data
-await stream.append(JSON.stringify({ event: "user.created", userId: "123" }))
-await stream.append(JSON.stringify({ event: "user.updated", userId: "123" }))
+// Append data (automatically batched for high throughput)
+await stream.append({ event: "user.created", userId: "123" })
+await stream.append({ event: "user.updated", userId: "123" })
 
-// Writer also includes all read operations
-const result = await stream.read({ live: false })
+// Read with the streaming API
+const res = await stream.stream<{ event: string; userId: string }>({
+  live: false,
+})
+const items = await res.json()
+console.log(items) // [{ event: "user.created", userId: "123" }, ...]
 ```
 
 ### Resume from an offset
 
 ```typescript
 // Read and save the offset
-const result = await stream.read({ live: false })
-const savedOffset = result.offset // Save this for later
+const res = await stream.stream({ live: false })
+const text = await res.text()
+const savedOffset = res.offset // Save this for later
 
 // Resume from saved offset (catch-up mode returns immediately)
-const resumed = await stream.read({ offset: savedOffset, live: false })
+const resumed = await stream.stream({ offset: savedOffset, live: false })
+```
+
+### Live streaming
+
+```typescript
+// Subscribe to live updates
+const res = await stream.stream({ live: "auto" })
+
+res.subscribeJson(async (batch) => {
+  for (const item of batch.items) {
+    console.log("Received:", item)
+  }
+  saveCheckpoint(batch.offset) // Persist for resumption
+})
 ```
 
 ## Protocol in 60 Seconds
@@ -493,13 +495,20 @@ Stream database changes to web and mobile clients for real-time synchronization:
 ```typescript
 // Server: stream database changes
 for (const change of db.changes()) {
-  await stream.append(JSON.stringify(change))
+  await stream.append(change) // JSON objects batched automatically
 }
 
 // Client: receive and apply changes (works in browsers, React Native, native apps)
-const result = await stream.read({ offset: lastSeenOffset })
-const changes = parseChanges(result.data)
-changes.forEach(applyChange)
+const res = await stream.stream<Change>({
+  offset: lastSeenOffset,
+  live: "auto",
+})
+res.subscribeJson(async (batch) => {
+  for (const change of batch.items) {
+    applyChange(change)
+  }
+  saveOffset(batch.offset)
+})
 ```
 
 ### Event Sourcing
@@ -508,12 +517,12 @@ Build event-sourced systems with durable event logs:
 
 ```typescript
 // Append events
-await stream.append(JSON.stringify({ type: "OrderCreated", orderId: "123" }))
-await stream.append(JSON.stringify({ type: "OrderPaid", orderId: "123" }))
+await stream.append({ type: "OrderCreated", orderId: "123" })
+await stream.append({ type: "OrderPaid", orderId: "123" })
 
 // Replay from beginning (catch-up mode for full replay)
-const result = await stream.read({ offset: "-1", live: false })
-const events = parseEvents(result.data)
+const res = await stream.stream<Event>({ offset: "-1", live: false })
+const events = await res.json()
 const state = events.reduce(applyEvent, initialState)
 ```
 
@@ -528,8 +537,9 @@ for await (const token of llm.stream(prompt)) {
 }
 
 // Client can resume from any point (switch devices, refresh page, reconnect)
-const result = await stream.read({ offset: lastSeenOffset })
-renderTokens(new TextDecoder().decode(result.data))
+const res = await stream.stream({ offset: lastSeenOffset, live: false })
+const text = await res.text()
+renderTokens(text)
 ```
 
 ## Testing Your Implementation
