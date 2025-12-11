@@ -373,7 +373,7 @@ export class StreamResponseImpl<
       },
 
       cancel() {
-        void iterator.return()
+        void iterator.return?.()
       },
     })
   }
