@@ -2615,11 +2615,12 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       expect(failedResponse.headers.get(STREAM_OFFSET_HEADER)).toBeDefined()
     })
 
-    test(`should reject If-Match: * on non-existent stream`, async () => {
+    test(`should reject If-Match: * on non-existent stream with 412`, async () => {
       const streamPath = `/v1/stream/occ-wildcard-nonexistent-${Date.now()}`
 
       // Try to append with If-Match: * to non-existent stream
       // Per RFC 9110, If-Match: * means "only if resource exists"
+      // Per protocol, when If-Match is present, use 412 (not 404) for non-existent streams
       const response = await fetch(`${getBaseUrl()}${streamPath}`, {
         method: `POST`,
         headers: {
@@ -2629,8 +2630,8 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         body: `should fail`,
       })
 
-      // Should fail - either 404 (not found) or 412 (precondition failed)
-      expect([404, 412]).toContain(response.status)
+      // Should fail with 412 Precondition Failed
+      expect(response.status).toBe(412)
     })
 
     test(`should handle If-Match: * on existing stream`, async () => {
@@ -2655,6 +2656,32 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
 
       // May succeed (200/204) if wildcard supported, or 400 if not
       expect([200, 204, 400]).toContain(response.status)
+    })
+
+    test(`should reject multiple If-Match values with 400`, async () => {
+      const streamPath = `/v1/stream/occ-multi-value-test-${Date.now()}`
+
+      // Create stream
+      const createResponse = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+      const offset = createResponse.headers.get(STREAM_OFFSET_HEADER)
+      expect(offset).toBeDefined()
+
+      // Try to append with multiple If-Match values
+      // Per protocol, servers SHOULD reject this with 400
+      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `POST`,
+        headers: {
+          "Content-Type": `text/plain`,
+          "If-Match": `"${offset}", "some-other-value"`,
+        },
+        body: `should fail`,
+      })
+
+      // Multi-value If-Match should be rejected
+      expect(response.status).toBe(400)
     })
   })
 

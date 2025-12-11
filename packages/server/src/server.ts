@@ -496,21 +496,33 @@ export class DurableStreamTestServer {
       return
     }
 
-    // Handle If-Match: * (wildcard) - match any existing resource
-    // This must be checked before attempting append
-    if (ifMatch === `*`) {
-      if (!this.store.has(path)) {
-        res.writeHead(412, { "content-type": `text/plain` })
-        res.end(`Stream does not exist`)
+    // Handle If-Match header for OCC
+    let expectedOffset: string | undefined
+    if (ifMatch !== undefined) {
+      // Reject multiple If-Match values (comma-separated)
+      if (ifMatch.includes(`,`) && ifMatch !== `*`) {
+        res.writeHead(400, { "content-type": `text/plain` })
+        res.end(`Multiple If-Match values not supported`)
         return
       }
-      // Stream exists, wildcard matches - continue with append (no offset check)
-    }
 
-    // Parse If-Match for OCC (pass to store for atomic check)
-    let expectedOffset: string | undefined
-    if (ifMatch !== undefined && ifMatch !== `*`) {
-      expectedOffset = this.parseIfMatchValue(ifMatch)
+      // Handle If-Match: * (wildcard) - match any existing resource
+      if (ifMatch === `*`) {
+        if (!this.store.has(path)) {
+          res.writeHead(412, { "content-type": `text/plain` })
+          res.end(`Stream does not exist`)
+          return
+        }
+        // Stream exists, wildcard matches - continue with append (no offset check)
+      } else {
+        // Check if stream exists when If-Match is provided (return 412, not 404)
+        if (!this.store.has(path)) {
+          res.writeHead(412, { "content-type": `text/plain` })
+          res.end(`Stream does not exist`)
+          return
+        }
+        expectedOffset = this.parseIfMatchValue(ifMatch)
+      }
     }
 
     try {
