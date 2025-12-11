@@ -382,7 +382,7 @@ export class StreamResponseImpl<
       }
     }
 
-    void pipeBodyStream()
+    pipeBodyStream()
 
     return readable
   }
@@ -504,7 +504,7 @@ export class StreamResponseImpl<
       }
     }
 
-    void consumeJsonSubscription()
+    consumeJsonSubscription()
 
     return () => {
       abortController.abort()
@@ -535,7 +535,7 @@ export class StreamResponseImpl<
       }
     }
 
-    void consumeBytesSubscription()
+    consumeBytesSubscription()
 
     return () => {
       abortController.abort()
@@ -566,7 +566,7 @@ export class StreamResponseImpl<
       }
     }
 
-    void consumeTextSubscription()
+    consumeTextSubscription()
 
     return () => {
       abortController.abort()
