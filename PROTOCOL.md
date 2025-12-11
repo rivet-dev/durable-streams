@@ -175,6 +175,13 @@ Servers that do not support appends for a given stream **SHOULD** return `405 Me
   - `Stream-Seq` values are opaque strings that **MUST** compare using simple byte-wise lexicographic ordering. Sequence numbers are scoped per authenticated writer identity (or per stream, depending on implementation). Servers **MUST** document the scope they enforce.
   - If provided and less than or equal to the last appended sequence (as determined by lexicographic comparison), the server **MUST** return `409 Conflict`. Sequence numbers **MUST** be strictly increasing.
 
+- `If-Match: <offset>` (optional)
+  - Enables optimistic concurrency control (OCC) for the append operation.
+  - The value **MUST** be the expected current tail offset of the stream (i.e., the `Stream-Next-Offset` value from a previous response).
+  - If the stream's current tail offset does not match the provided value, the server **MUST** return `412 Precondition Failed`.
+  - This allows clients to detect concurrent modifications and implement compare-and-swap semantics.
+  - **Use case**: When multiple writers may append to the same stream, `If-Match` ensures an append only succeeds if no other writer has modified the stream since the client last observed it.
+
 #### Request Body
 
 - Bytes to append to the stream. Servers **MUST** reject POST requests with an empty body (Content-Length: 0 or no body) with `400 Bad Request`. Empty appends have no semantic meaning and are likely client errors.
@@ -185,6 +192,7 @@ Servers that do not support appends for a given stream **SHOULD** return `405 Me
 - `404 Not Found`: Stream does not exist
 - `405 Method Not Allowed` or `501 Not Implemented`: Append not supported for this stream
 - `409 Conflict`: Sequence regression detected (if `Stream-Seq` provided) or content type mismatch
+- `412 Precondition Failed`: `If-Match` header provided but the stream's current tail offset does not match
 - `400 Bad Request`: Invalid headers or parameters
 - `413 Payload Too Large`: Request body exceeds server limits
 - `429 Too Many Requests`: Rate limit exceeded
@@ -192,6 +200,11 @@ Servers that do not support appends for a given stream **SHOULD** return `405 Me
 #### Response Headers (on success)
 
 - `Stream-Next-Offset: <offset>`: The new tail offset after the append
+- `ETag: <offset>` (optional): The new tail offset, suitable for use in a subsequent `If-Match` header. Servers **MAY** include this to simplify OCC workflows.
+
+#### Response Headers (on 412 Precondition Failed)
+
+- `Stream-Next-Offset: <offset>`: The stream's actual current tail offset. Clients **MAY** use this value to retry with an updated `If-Match` header or to detect how far the stream has advanced.
 
 ### 5.3. Delete Stream
 
@@ -535,6 +548,10 @@ Servers **SHOULD** implement rate limiting to prevent abuse. The `429 Too Many R
 ### 10.6. Sequence Validation
 
 The optional `Stream-Seq` header provides protection against out-of-order writes in multi-writer scenarios. Servers **MUST** reject sequence regressions to maintain stream integrity.
+
+### 10.7. Optimistic Concurrency Control
+
+The optional `If-Match` header on append requests provides optimistic concurrency control, preventing lost updates in multi-writer scenarios. When multiple clients may write to the same stream concurrently, clients **SHOULD** use `If-Match` with the expected tail offset to ensure their append succeeds only if no other writer has modified the stream. On `412 Precondition Failed`, clients can read the latest state and retry or merge changes as appropriate for their application semantics.
 
 ### 10.8. TLS
 
