@@ -12,17 +12,17 @@ import {
   createRegistryHooks,
 } from "./packages/server/dist/index.js"
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url))
-const UI_DIST = resolve(__dirname, "packages/test-ui/dist")
-const PORT = parseInt(process.env.PORT || "8787", 10)
-const HOST = process.env.HOST || "0.0.0.0"
-const STREAM_PORT = parseInt(process.env.STREAM_PORT || "8788", 10)
+const __dirname = fileURLToPath(new URL(`.`, import.meta.url))
+const UI_DIST = resolve(__dirname, `packages/test-ui/dist`)
+const PORT = parseInt(process.env.PORT || `8787`, 10)
+const HOST = process.env.HOST || `0.0.0.0`
+const STREAM_PORT = parseInt(process.env.STREAM_PORT || `8788`, 10)
 const DATA_DIR = process.env.DATA_DIR || undefined
 
 // Create the stream server on an internal port
 const streamServer = new DurableStreamTestServer({
   port: STREAM_PORT,
-  host: "127.0.0.1",
+  host: `127.0.0.1`,
   dataDir: DATA_DIR,
 })
 
@@ -41,20 +41,20 @@ streamServer.options.onStreamDeleted = hooks.onStreamDeleted
 
 // MIME types for static files
 const MIME_TYPES = {
-  ".html": "text/html",
-  ".js": "application/javascript",
-  ".css": "text/css",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
+  ".html": `text/html`,
+  ".js": `application/javascript`,
+  ".css": `text/css`,
+  ".json": `application/json`,
+  ".png": `image/png`,
+  ".jpg": `image/jpeg`,
+  ".svg": `image/svg+xml`,
+  ".ico": `image/x-icon`,
 }
 
 // Helper to get MIME type
 function getMimeType(filePath) {
-  const ext = filePath.substring(filePath.lastIndexOf("."))
-  return MIME_TYPES[ext] || "application/octet-stream"
+  const ext = filePath.substring(filePath.lastIndexOf(`.`))
+  return MIME_TYPES[ext] || `application/octet-stream`
 }
 
 // Helper to serve static files
@@ -63,21 +63,21 @@ async function serveStaticFile(filePath, res) {
     const content = await readFile(filePath)
     res.writeHead(200, {
       "content-type": getMimeType(filePath),
-      "cache-control": "public, max-age=3600",
+      "cache-control": `public, max-age=3600`,
     })
     res.end(content)
   } catch (err) {
     // If file not found, serve index.html for client-side routing
     try {
-      const indexPath = join(UI_DIST, "index.html")
+      const indexPath = join(UI_DIST, `index.html`)
       const content = await readFile(indexPath)
       res.writeHead(200, {
-        "content-type": "text/html",
+        "content-type": `text/html`,
       })
       res.end(content)
     } catch {
-      res.writeHead(404, { "content-type": "text/plain" })
-      res.end("Not found")
+      res.writeHead(404, { "content-type": `text/plain` })
+      res.end(`Not found`)
     }
   }
 }
@@ -86,7 +86,7 @@ async function serveStaticFile(filePath, res) {
 function proxyToStreamServer(req, res) {
   const proxyReq = httpRequest(
     {
-      hostname: "127.0.0.1",
+      hostname: `127.0.0.1`,
       port: STREAM_PORT,
       path: req.url,
       method: req.method,
@@ -98,11 +98,11 @@ function proxyToStreamServer(req, res) {
     }
   )
 
-  proxyReq.on("error", (err) => {
-    console.error("Proxy error:", err)
+  proxyReq.on(`error`, (err) => {
+    console.error(`Proxy error:`, err)
     if (!res.headersSent) {
-      res.writeHead(500, { "content-type": "text/plain" })
-      res.end("Internal server error")
+      res.writeHead(500, { "content-type": `text/plain` })
+      res.end(`Internal server error`)
     }
   })
 
@@ -111,21 +111,21 @@ function proxyToStreamServer(req, res) {
 
 // Create the combined HTTP server
 const server = createServer(async (req, res) => {
-  const url = req.url || "/"
+  const url = req.url || `/`
 
   // Handle stream API requests - proxy to internal stream server
-  if (url.startsWith("/v1/stream/")) {
+  if (url.startsWith(`/v1/stream/`)) {
     proxyToStreamServer(req, res)
     return
   }
 
   // Handle static files for the UI
   let filePath
-  if (url === "/" || url === "/index.html") {
-    filePath = join(UI_DIST, "index.html")
+  if (url === `/` || url === `/index.html`) {
+    filePath = join(UI_DIST, `index.html`)
   } else {
     // Remove query string and serve the file
-    const cleanUrl = url.split("?")[0]
+    const cleanUrl = url.split(`?`)[0]
     filePath = join(UI_DIST, cleanUrl)
   }
 
@@ -140,15 +140,15 @@ server.listen(PORT, HOST, () => {
 })
 
 // Handle graceful shutdown
-process.on("SIGINT", async () => {
-  console.log("\nShutting down server...")
+process.on(`SIGINT`, async () => {
+  console.log(`\nShutting down server...`)
   server.close()
   await streamServer.stop()
   process.exit(0)
 })
 
-process.on("SIGTERM", async () => {
-  console.log("\nShutting down server...")
+process.on(`SIGTERM`, async () => {
+  console.log(`\nShutting down server...`)
   server.close()
   await streamServer.stop()
   process.exit(0)
