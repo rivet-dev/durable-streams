@@ -287,34 +287,54 @@ console.log("Full content:", text)
 
 ### ReadableStreams
 
-Web Streams API for piping to other streams or using with streaming APIs.
+Web Streams API for piping to other streams or using with streaming APIs. ReadableStreams can be consumed using either `getReader()` or `for await...of` syntax.
 
 #### `bodyStream(): ReadableStream<Uint8Array>`
 
 Raw bytes as a ReadableStream.
 
+**Using `getReader()`:**
+
 ```typescript
 const res = await stream({ url, live: false })
 const readable = res.bodyStream()
 
-// Pipe to a file (Node.js)
-import { Readable } from "node:stream"
-import { pipeline } from "node:stream/promises"
-
-await pipeline(Readable.fromWeb(readable), fs.createWriteStream("output.bin"))
-
-// Or read manually
 const reader = readable.getReader()
 while (true) {
   const { done, value } = await reader.read()
   if (done) break
-  console.log("Received:", value)
+  console.log("Received:", value.length, "bytes")
 }
+```
+
+**Using `for await...of`:**
+
+```typescript
+const res = await stream({ url, live: false })
+
+for await (const chunk of res.bodyStream()) {
+  console.log("Received:", chunk.length, "bytes")
+}
+```
+
+**Piping to a file (Node.js):**
+
+```typescript
+import { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
+
+const res = await stream({ url, live: false })
+await pipeline(
+  Readable.fromWeb(res.bodyStream()),
+  fs.createWriteStream("output.bin")
+)
 ```
 
 #### `jsonStream(): ReadableStream<TJson>`
 
 Individual JSON items as a ReadableStream.
+
+**Using `getReader()`:**
 
 ```typescript
 const res = await stream<{ id: number }>({ url, live: false })
@@ -328,16 +348,49 @@ while (true) {
 }
 ```
 
+**Using `for await...of`:**
+
+```typescript
+const res = await stream<{ id: number; name: string }>({ url, live: false })
+
+for await (const item of res.jsonStream()) {
+  console.log(`User ${item.id}: ${item.name}`)
+}
+```
+
 #### `textStream(): ReadableStream<string>`
 
 Text chunks as a ReadableStream.
+
+**Using `getReader()`:**
 
 ```typescript
 const res = await stream({ url, live: false })
 const readable = res.textStream()
 
-// Use with Response API
-const textResponse = new Response(readable)
+const reader = readable.getReader()
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+  console.log("Text chunk:", value)
+}
+```
+
+**Using `for await...of`:**
+
+```typescript
+const res = await stream({ url, live: false })
+
+for await (const text of res.textStream()) {
+  console.log("Text chunk:", text)
+}
+```
+
+**Using with Response API:**
+
+```typescript
+const res = await stream({ url, live: false })
+const textResponse = new Response(res.textStream())
 const fullText = await textResponse.text()
 ```
 
