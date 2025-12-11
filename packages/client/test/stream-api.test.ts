@@ -227,6 +227,513 @@ describe(`stream() function`, () => {
     })
   })
 
+  describe(`body() method`, () => {
+    it(`should accumulate bytes until upToDate`, async () => {
+      const responseData = new Uint8Array([1, 2, 3, 4, 5])
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const body = await res.body()
+      expect(body).toBeInstanceOf(Uint8Array)
+      expect(Array.from(body)).toEqual([1, 2, 3, 4, 5])
+    })
+  })
+
+  describe(`byteChunks() method`, () => {
+    it(`should iterate byte chunks with metadata`, async () => {
+      const responseData = `chunk data`
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_10`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const chunks = []
+      for await (const chunk of res.byteChunks()) {
+        chunks.push(chunk)
+      }
+
+      expect(chunks.length).toBe(1)
+      expect(chunks[0]!.data).toBeInstanceOf(Uint8Array)
+      expect(chunks[0]!.offset).toBe(`1_10`)
+      expect(chunks[0]!.upToDate).toBe(true)
+    })
+  })
+
+  describe(`jsonBatches() method`, () => {
+    it(`should iterate JSON batches with metadata`, async () => {
+      const items = [{ id: 1 }, { id: 2 }]
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(items), {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_30`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream<{ id: number }>({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const batches = []
+      for await (const batch of res.jsonBatches()) {
+        batches.push(batch)
+      }
+
+      expect(batches.length).toBe(1)
+      expect(batches[0]!.items).toEqual(items)
+      expect(batches[0]!.offset).toBe(`1_30`)
+      expect(batches[0]!.upToDate).toBe(true)
+    })
+
+    it(`should throw on non-JSON content`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`plain text`, {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`,
+            [STREAM_OFFSET_HEADER]: `1_10`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      expect(() => res.jsonBatches()).toThrow()
+    })
+  })
+
+  describe(`textChunks() method`, () => {
+    it(`should iterate text chunks with metadata`, async () => {
+      const responseData = `hello world`
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`,
+            [STREAM_OFFSET_HEADER]: `1_11`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const chunks = []
+      for await (const chunk of res.textChunks()) {
+        chunks.push(chunk)
+      }
+
+      expect(chunks.length).toBe(1)
+      expect(chunks[0]!.text).toBe(`hello world`)
+      expect(chunks[0]!.offset).toBe(`1_11`)
+      expect(chunks[0]!.upToDate).toBe(true)
+    })
+  })
+
+  describe(`bodyStream() method`, () => {
+    it(`should return a ReadableStream of bytes`, async () => {
+      const responseData = `stream data`
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_11`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const readable = res.bodyStream()
+      expect(readable).toBeInstanceOf(ReadableStream)
+
+      const reader = readable.getReader()
+      const { value, done } = await reader.read()
+
+      expect(done).toBe(false)
+      expect(value).toBeInstanceOf(Uint8Array)
+      expect(new TextDecoder().decode(value)).toBe(`stream data`)
+    })
+  })
+
+  describe(`jsonStream() method`, () => {
+    it(`should return a ReadableStream of JSON items`, async () => {
+      const items = [{ id: 1 }, { id: 2 }]
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(items), {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_30`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream<{ id: number }>({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const readable = res.jsonStream()
+      expect(readable).toBeInstanceOf(ReadableStream)
+
+      const reader = readable.getReader()
+      const collected = []
+
+      let result = await reader.read()
+      while (!result.done) {
+        collected.push(result.value)
+        result = await reader.read()
+      }
+
+      expect(collected).toEqual(items)
+    })
+
+    it(`should throw on non-JSON content`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`plain text`, {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`,
+            [STREAM_OFFSET_HEADER]: `1_10`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      expect(() => res.jsonStream()).toThrow()
+    })
+  })
+
+  describe(`textStream() method`, () => {
+    it(`should return a ReadableStream of text`, async () => {
+      const responseData = `hello world`
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`,
+            [STREAM_OFFSET_HEADER]: `1_11`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const readable = res.textStream()
+      expect(readable).toBeInstanceOf(ReadableStream)
+
+      const reader = readable.getReader()
+      const { value, done } = await reader.read()
+
+      expect(done).toBe(false)
+      expect(value).toBe(`hello world`)
+    })
+  })
+
+  describe(`subscribeBytes() method`, () => {
+    it(`should call subscriber for each byte chunk`, async () => {
+      const responseData = `chunk data`
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_10`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const received: Array<{ data: Uint8Array; offset: string }> = []
+      const unsubscribe = res.subscribeBytes(async (chunk) => {
+        received.push({ data: chunk.data, offset: chunk.offset })
+      })
+
+      // Wait for async processing
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      unsubscribe()
+
+      expect(received.length).toBe(1)
+      expect(received[0]!.offset).toBe(`1_10`)
+    })
+
+    it(`should return unsubscribe function that stops processing`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_4`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const unsubscribe = res.subscribeBytes(async () => {
+        // Immediately unsubscribe
+        unsubscribe()
+      })
+
+      // Should not throw
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+  })
+
+  describe(`subscribeJson() method`, () => {
+    it(`should call subscriber for each JSON batch`, async () => {
+      const items = [{ id: 1 }, { id: 2 }]
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(items), {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_30`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream<{ id: number }>({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const received: Array<Array<{ id: number }>> = []
+      const unsubscribe = res.subscribeJson(async (batch) => {
+        received.push([...batch.items])
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      unsubscribe()
+
+      expect(received.length).toBe(1)
+      expect(received[0]).toEqual(items)
+    })
+
+    it(`should throw on non-JSON content`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`plain text`, {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`,
+            [STREAM_OFFSET_HEADER]: `1_10`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      expect(() => res.subscribeJson(async () => {})).toThrow()
+    })
+  })
+
+  describe(`subscribeText() method`, () => {
+    it(`should call subscriber for each text chunk`, async () => {
+      const responseData = `hello world`
+      mockFetch.mockResolvedValue(
+        new Response(responseData, {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`,
+            [STREAM_OFFSET_HEADER]: `1_11`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      const received: Array<string> = []
+      const unsubscribe = res.subscribeText(async (chunk) => {
+        received.push(chunk.text)
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      unsubscribe()
+
+      expect(received.length).toBe(1)
+      expect(received[0]).toBe(`hello world`)
+    })
+  })
+
+  describe(`cancel() method`, () => {
+    it(`should abort the session`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_4`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      // Should not throw
+      res.cancel()
+
+      // Subsequent consumption should fail or return empty
+      const chunks = []
+      for await (const chunk of res.byteChunks()) {
+        chunks.push(chunk)
+      }
+      // After cancel, iteration should complete (possibly with existing data)
+      expect(chunks.length).toBeLessThanOrEqual(1)
+    })
+  })
+
+  describe(`closed property`, () => {
+    it(`should resolve when session completes normally`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_4`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        live: false,
+      })
+
+      // Consume the stream to completion
+      await res.text()
+
+      // closed should resolve
+      await expect(res.closed).resolves.toBeUndefined()
+    })
+
+    it(`should resolve when cancelled`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_4`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      res.cancel()
+
+      await expect(res.closed).resolves.toBeUndefined()
+    })
+  })
+
+  describe(`json hint option`, () => {
+    it(`should enable JSON mode even without application/json content-type`, async () => {
+      const items = [{ id: 1 }]
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(items), {
+          status: 200,
+          headers: {
+            "content-type": `text/plain`, // Not JSON content-type
+            [STREAM_OFFSET_HEADER]: `1_10`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream<{ id: number }>({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        json: true, // Force JSON mode
+        live: false,
+      })
+
+      // json() should work despite text/plain content-type
+      const result = await res.json()
+      expect(result).toEqual(items)
+    })
+  })
+
   describe(`first request semantics`, () => {
     it(`should reject on 401 auth failure`, async () => {
       mockFetch.mockResolvedValue(

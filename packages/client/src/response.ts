@@ -294,6 +294,8 @@ export class StreamResponseImpl<
       offset += chunk.length
     }
 
+    // Mark session as closed since we're done accumulating
+    this.#markClosed()
     return result
   }
 
@@ -307,6 +309,8 @@ export class StreamResponseImpl<
       if (batch.upToDate) break
     }
 
+    // Mark session as closed since we're done accumulating
+    this.#markClosed()
     return items
   }
 
@@ -324,6 +328,9 @@ export class StreamResponseImpl<
 
     // Flush any remaining data
     parts.push(decoder.decode())
+
+    // Mark session as closed since we're done accumulating
+    this.#markClosed()
     return parts.join(``)
   }
 
