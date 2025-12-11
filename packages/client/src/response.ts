@@ -339,12 +339,11 @@ export class StreamResponseImpl<
   bodyStream(): ReadableStream<Uint8Array> {
     this.#markConsuming()
 
-    const self = this
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
 
     const pipeBodyStream = async (): Promise<void> => {
       try {
-        for await (const response of self.#generateResponses()) {
+        for await (const response of this.#generateResponses()) {
           const body = response.body
           if (body) {
             // Pipe this response body, but don't close the writable yet
@@ -356,28 +355,28 @@ export class StreamResponseImpl<
           }
 
           // Check if we should stop after this response
-          if (self.upToDate && !self.#shouldContinueLive()) {
+          if (this.upToDate && !this.#shouldContinueLive()) {
             break
           }
         }
         // All responses piped, now close the writable
         await writable.close()
-        self.#markClosed()
+        this.#markClosed()
       } catch (err) {
-        if (self.#abortController.signal.aborted) {
+        if (this.#abortController.signal.aborted) {
           try {
             await writable.close()
           } catch {
             // Ignore close errors on abort
           }
-          self.#markClosed()
+          this.#markClosed()
         } else {
           try {
             await writable.abort(err)
           } catch {
             // Ignore abort errors
           }
-          self.#markError(err instanceof Error ? err : new Error(String(err)))
+          this.#markError(err instanceof Error ? err : new Error(String(err)))
         }
       }
     }
@@ -480,11 +479,10 @@ export class StreamResponseImpl<
   ): () => void {
     this.#ensureJsonMode()
     const abortController = new AbortController()
-    const self = this
 
     const consumeJsonSubscription = async (): Promise<void> => {
       try {
-        for await (const response of self.#generateResponses()) {
+        for await (const response of this.#generateResponses()) {
           if (abortController.signal.aborted) break
 
           // Use the efficient json() method on Response
@@ -493,9 +491,9 @@ export class StreamResponseImpl<
 
           await subscriber({
             items,
-            offset: self.offset,
-            cursor: self.cursor,
-            upToDate: self.upToDate,
+            offset: this.offset,
+            cursor: this.cursor,
+            upToDate: this.upToDate,
           })
         }
       } catch (e) {
@@ -514,20 +512,19 @@ export class StreamResponseImpl<
 
   subscribeBytes(subscriber: (chunk: ByteChunk) => Promise<void>): () => void {
     const abortController = new AbortController()
-    const self = this
 
     const consumeBytesSubscription = async (): Promise<void> => {
       try {
-        for await (const response of self.#generateResponses()) {
+        for await (const response of this.#generateResponses()) {
           if (abortController.signal.aborted) break
 
           const buffer = await response.arrayBuffer()
 
           await subscriber({
             data: new Uint8Array(buffer),
-            offset: self.offset,
-            cursor: self.cursor,
-            upToDate: self.upToDate,
+            offset: this.offset,
+            cursor: this.cursor,
+            upToDate: this.upToDate,
           })
         }
       } catch (e) {
@@ -545,20 +542,19 @@ export class StreamResponseImpl<
 
   subscribeText(subscriber: (chunk: TextChunk) => Promise<void>): () => void {
     const abortController = new AbortController()
-    const self = this
 
     const consumeTextSubscription = async (): Promise<void> => {
       try {
-        for await (const response of self.#generateResponses()) {
+        for await (const response of this.#generateResponses()) {
           if (abortController.signal.aborted) break
 
           const text = await response.text()
 
           await subscriber({
             text,
-            offset: self.offset,
-            cursor: self.cursor,
-            upToDate: self.upToDate,
+            offset: this.offset,
+            cursor: this.cursor,
+            upToDate: this.upToDate,
           })
         }
       } catch (e) {
