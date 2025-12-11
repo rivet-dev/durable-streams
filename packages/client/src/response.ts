@@ -177,240 +177,19 @@ export class StreamResponseImpl<
   }
 
   /**
-   * Create the core byte stream that handles the first response and live updates.
-   * This is optimized to pipe from fetch response bodies.
+   * Consume the first response if available, returning null if already consumed.
    */
-  #createByteStream(): ReadableStream<ByteChunk> {
-    this.#markConsuming()
-
-    const self = this
-    let firstResponseConsumed = false
-
-    return new ReadableStream<ByteChunk>({
-      async pull(controller) {
-        try {
-          // First, consume the held first response
-          if (!firstResponseConsumed && self.#firstResponse) {
-            firstResponseConsumed = true
-            const response = self.#firstResponse
-            self.#firstResponse = null
-
-            // Read the response body
-            const body = response.body
-            if (body) {
-              const reader = body.getReader()
-              const chunks: Array<Uint8Array> = []
-
-              let result = await reader.read()
-              while (!result.done) {
-                chunks.push(result.value)
-                result = await reader.read()
-              }
-
-              // Concatenate chunks
-              const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
-              const data = new Uint8Array(totalLength)
-              let offset = 0
-              for (const chunk of chunks) {
-                data.set(chunk, offset)
-                offset += chunk.length
-              }
-
-              controller.enqueue({
-                data,
-                offset: self.offset,
-                cursor: self.cursor,
-                upToDate: self.upToDate,
-              })
-            } else {
-              // Empty response
-              controller.enqueue({
-                data: new Uint8Array(0),
-                offset: self.offset,
-                cursor: self.cursor,
-                upToDate: self.upToDate,
-              })
-            }
-
-            // If upToDate and not continuing live, we're done
-            if (self.upToDate && !self.#shouldContinueLive()) {
-              self.#markClosed()
-              controller.close()
-              return
-            }
-
-            // If we should continue, don't close yet
-            if (self.#shouldContinueLive()) {
-              return // Will be called again for next chunk
-            }
-
-            self.#markClosed()
-            controller.close()
-            return
-          }
-
-          // Continue with live updates if needed
-          if (self.#shouldContinueLive()) {
-            // Check if we should use SSE
-            if (self.live === `sse` && self.#startSSE) {
-              if (!self.#sseIterator) {
-                self.#sseIterator = self.#startSSE(
-                  self.offset,
-                  self.cursor,
-                  self.#abortController.signal
-                )
-              }
-
-              const result = await self.#sseIterator.next()
-              if (result.done) {
-                self.#markClosed()
-                controller.close()
-                return
-              }
-
-              const chunk = result.value
-              self.offset = chunk.offset
-              self.cursor = chunk.cursor
-              self.upToDate = chunk.upToDate
-
-              controller.enqueue(chunk)
-
-              if (self.upToDate && !self.#shouldContinueLive()) {
-                self.#markClosed()
-                controller.close()
-              }
-              return
-            }
-
-            // Use long-poll
-            if (self.#abortController.signal.aborted) {
-              self.#markClosed()
-              controller.close()
-              return
-            }
-
-            const response = await self.#fetchNext(
-              self.offset,
-              self.cursor,
-              self.#abortController.signal
-            )
-
-            self.#updateStateFromResponse(response)
-
-            // Read response body
-            const data = new Uint8Array(await response.arrayBuffer())
-
-            controller.enqueue({
-              data,
-              offset: self.offset,
-              cursor: self.cursor,
-              upToDate: self.upToDate,
-            })
-
-            if (self.upToDate && !self.#shouldContinueLive()) {
-              self.#markClosed()
-              controller.close()
-            }
-            return
-          }
-
-          // No more data
-          self.#markClosed()
-          controller.close()
-        } catch (err) {
-          if (self.#abortController.signal.aborted) {
-            self.#markClosed()
-            controller.close()
-          } else {
-            self.#markError(err instanceof Error ? err : new Error(String(err)))
-            controller.error(err)
-          }
-        }
-      },
-
-      cancel() {
-        self.#abortController.abort()
-        self.#markClosed()
-      },
-    })
+  #takeFirstResponse(): Response | null {
+    const response = this.#firstResponse
+    this.#firstResponse = null
+    return response
   }
 
-  // =================================
-  // 1) Accumulating helpers (Promise)
-  // =================================
-
-  async body(): Promise<Uint8Array> {
-    this.#stopAfterUpToDate = true
-    const chunks: Array<Uint8Array> = []
-
-    const reader = this.#createByteStream().getReader()
-    let result = await reader.read()
-    while (!result.done) {
-      if (result.value.data.length > 0) {
-        chunks.push(result.value.data)
-      }
-      if (result.value.upToDate) break
-      result = await reader.read()
-    }
-
-    // Concatenate all chunks
-    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
-    const data = new Uint8Array(totalLength)
-    let offset = 0
-    for (const chunk of chunks) {
-      data.set(chunk, offset)
-      offset += chunk.length
-    }
-
-    this.#markClosed()
-    return data
-  }
-
-  async json(): Promise<Array<TJson>> {
-    this.#ensureJsonMode()
-    this.#stopAfterUpToDate = true
-    const items: Array<TJson> = []
-    const decoder = new TextDecoder()
-
-    const reader = this.#createByteStream().getReader()
-    let result = await reader.read()
-    while (!result.done) {
-      if (result.value.data.length > 0) {
-        const text = decoder.decode(result.value.data)
-        const parsed = this.#parseJsonChunk<TJson>(text)
-        items.push(...parsed)
-      }
-      if (result.value.upToDate) break
-      result = await reader.read()
-    }
-
-    this.#markClosed()
-    return items
-  }
-
-  async text(): Promise<string> {
-    this.#stopAfterUpToDate = true
-    const decoder = new TextDecoder()
-    const parts: Array<string> = []
-
-    const reader = this.#createByteStream().getReader()
-    let result = await reader.read()
-    while (!result.done) {
-      if (result.value.data.length > 0) {
-        parts.push(decoder.decode(result.value.data, { stream: true }))
-      }
-      if (result.value.upToDate) break
-      result = await reader.read()
-    }
-
-    // Flush any remaining data
-    parts.push(decoder.decode())
-
-    this.#markClosed()
-    return parts.join(``)
-  }
-
-  #parseJsonChunk<T>(text: string): Array<T> {
+  /**
+   * Parse JSON from text, handling arrays and newline-delimited JSON.
+   */
+  #parseJsonText<T>(text: string): Array<T> {
+    if (!text.trim()) return []
     try {
       const parsed = JSON.parse(text) as unknown
       if (Array.isArray(parsed)) {
@@ -425,33 +204,248 @@ export class StreamResponseImpl<
     }
   }
 
+  /**
+   * Async generator that yields Response objects (first response + live updates).
+   * This is the core primitive for all consumption methods.
+   */
+  async *#generateResponses(): AsyncGenerator<Response, void, undefined> {
+    this.#markConsuming()
+
+    try {
+      // First, yield the held first response
+      const firstResponse = this.#takeFirstResponse()
+      if (firstResponse) {
+        yield firstResponse
+
+        // If upToDate and not continuing live, we're done
+        if (this.upToDate && !this.#shouldContinueLive()) {
+          this.#markClosed()
+          return
+        }
+      }
+
+      // Continue with live updates if needed
+      while (this.#shouldContinueLive()) {
+        // Check if we should use SSE
+        if (this.live === `sse` && this.#startSSE) {
+          if (!this.#sseIterator) {
+            this.#sseIterator = this.#startSSE(
+              this.offset,
+              this.cursor,
+              this.#abortController.signal
+            )
+          }
+
+          // SSE mode yields ByteChunks directly, not Response objects
+          // So we need to handle this differently - for now, throw
+          throw new DurableStreamError(
+            `SSE mode is not yet implemented`,
+            `SSE_NOT_SUPPORTED`
+          )
+        }
+
+        // Use long-poll
+        if (this.#abortController.signal.aborted) {
+          break
+        }
+
+        const response = await this.#fetchNext(
+          this.offset,
+          this.cursor,
+          this.#abortController.signal
+        )
+
+        this.#updateStateFromResponse(response)
+        yield response
+
+        if (this.upToDate && !this.#shouldContinueLive()) {
+          break
+        }
+      }
+
+      this.#markClosed()
+    } catch (err) {
+      if (this.#abortController.signal.aborted) {
+        this.#markClosed()
+      } else {
+        this.#markError(err instanceof Error ? err : new Error(String(err)))
+        throw err
+      }
+    }
+  }
+
+  // =================================
+  // 1) Accumulating helpers (Promise)
+  // =================================
+
+  async body(): Promise<Uint8Array> {
+    this.#markConsuming()
+    this.#stopAfterUpToDate = true
+
+    const chunks: Array<Uint8Array> = []
+
+    for await (const response of this.#generateResponses()) {
+      // Use the efficient arrayBuffer() method on Response
+      const buffer = await response.arrayBuffer()
+      if (buffer.byteLength > 0) {
+        chunks.push(new Uint8Array(buffer))
+      }
+      if (this.upToDate) break
+    }
+
+    // Concatenate all chunks
+    if (chunks.length === 0) {
+      this.#markClosed()
+      return new Uint8Array(0)
+    }
+    if (chunks.length === 1) {
+      this.#markClosed()
+      return chunks[0]!
+    }
+
+    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
+    const result = new Uint8Array(totalLength)
+    let offset = 0
+    for (const chunk of chunks) {
+      result.set(chunk, offset)
+      offset += chunk.length
+    }
+
+    this.#markClosed()
+    return result
+  }
+
+  async json(): Promise<Array<TJson>> {
+    this.#ensureJsonMode()
+    this.#markConsuming()
+    this.#stopAfterUpToDate = true
+
+    const items: Array<TJson> = []
+
+    for await (const response of this.#generateResponses()) {
+      // Use the efficient text() method on Response, then parse
+      const text = await response.text()
+      if (text.trim()) {
+        const parsed = this.#parseJsonText<TJson>(text)
+        items.push(...parsed)
+      }
+      if (this.upToDate) break
+    }
+
+    this.#markClosed()
+    return items
+  }
+
+  async text(): Promise<string> {
+    this.#markConsuming()
+    this.#stopAfterUpToDate = true
+
+    const parts: Array<string> = []
+
+    for await (const response of this.#generateResponses()) {
+      // Use the efficient text() method on Response
+      const text = await response.text()
+      if (text) {
+        parts.push(text)
+      }
+      if (this.upToDate) break
+    }
+
+    this.#markClosed()
+    return parts.join(``)
+  }
+
   // =====================
   // 2) ReadableStreams
   // =====================
 
   bodyStream(): ReadableStream<Uint8Array> {
-    const byteStream = this.#createByteStream()
-    return byteStream.pipeThrough(
-      new TransformStream<ByteChunk, Uint8Array>({
-        transform(chunk, controller) {
-          controller.enqueue(chunk.data)
-        },
-      })
-    )
+    this.#markConsuming()
+    const self = this
+    const responseGenerator = this.#generateResponses()
+    let currentReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          // If we have a current reader, try to read from it
+          if (currentReader) {
+            const { done, value } = await currentReader.read()
+            if (!done) {
+              controller.enqueue(value)
+              return
+            }
+            // Current response body exhausted, get next response
+            currentReader = null
+          }
+
+          // Get next response
+          const { done, value: response } = await responseGenerator.next()
+          if (done) {
+            self.#markClosed()
+            controller.close()
+            return
+          }
+
+          // Get the body reader from the response
+          const body = response.body
+          if (body) {
+            currentReader = body.getReader()
+            // Read first chunk
+            const { done: chunkDone, value } = await currentReader.read()
+            if (!chunkDone && value) {
+              controller.enqueue(value)
+            } else {
+              currentReader = null
+            }
+          }
+
+          // Check if we should stop
+          if (self.upToDate && !self.#shouldContinueLive()) {
+            self.#markClosed()
+            controller.close()
+          }
+        } catch (err) {
+          if (self.#abortController.signal.aborted) {
+            self.#markClosed()
+            controller.close()
+          } else {
+            self.#markError(err instanceof Error ? err : new Error(String(err)))
+            controller.error(err)
+          }
+        }
+      },
+
+      cancel() {
+        currentReader?.cancel()
+        responseGenerator.return()
+        self.#abortController.abort()
+        self.#markClosed()
+      },
+    })
   }
 
   jsonStream(): ReadableStream<TJson> {
     this.#ensureJsonMode()
     const self = this
-    const byteStream = this.#createByteStream()
     const decoder = new TextDecoder()
 
-    return byteStream.pipeThrough(
-      new TransformStream<ByteChunk, TJson>({
+    // Transform bytes to JSON items
+    return this.bodyStream().pipeThrough(
+      new TransformStream<Uint8Array, TJson>({
         transform(chunk, controller) {
-          if (chunk.data.length > 0) {
-            const text = decoder.decode(chunk.data)
-            const items = self.#parseJsonChunk<TJson>(text)
+          const text = decoder.decode(chunk, { stream: true })
+          if (text.trim()) {
+            const items = self.#parseJsonText<TJson>(text)
+            for (const item of items) {
+              controller.enqueue(item)
+            }
+          }
+        },
+        flush(controller) {
+          const remaining = decoder.decode()
+          if (remaining.trim()) {
+            const items = self.#parseJsonText<TJson>(remaining)
             for (const item of items) {
               controller.enqueue(item)
             }
@@ -462,16 +456,14 @@ export class StreamResponseImpl<
   }
 
   textStream(): ReadableStream<string> {
-    const byteStream = this.#createByteStream()
     const decoder = new TextDecoder()
 
-    return byteStream.pipeThrough(
-      new TransformStream<ByteChunk, string>({
+    return this.bodyStream().pipeThrough(
+      new TransformStream<Uint8Array, string>({
         transform(chunk, controller) {
-          controller.enqueue(decoder.decode(chunk.data, { stream: true }))
+          controller.enqueue(decoder.decode(chunk, { stream: true }))
         },
         flush(controller) {
-          // Flush any remaining bytes in the decoder
           const remaining = decoder.decode()
           if (remaining) {
             controller.enqueue(remaining)
@@ -490,33 +482,23 @@ export class StreamResponseImpl<
   ): () => void {
     this.#ensureJsonMode()
     const abortController = new AbortController()
-    const decoder = new TextDecoder()
     const self = this
-    const byteStream = this.#createByteStream()
 
     // Start consuming in the background
     ;(async () => {
       try {
-        const reader = byteStream.getReader()
-        let result = await reader.read()
-        while (!result.done) {
+        for await (const response of self.#generateResponses()) {
           if (abortController.signal.aborted) break
 
-          const chunk = result.value
-          let items: Array<TJson> = []
-          if (chunk.data.length > 0) {
-            const text = decoder.decode(chunk.data)
-            items = self.#parseJsonChunk<TJson>(text)
-          }
+          const text = await response.text()
+          const items = text.trim() ? self.#parseJsonText<TJson>(text) : []
 
           await subscriber({
             items,
-            offset: chunk.offset,
-            cursor: chunk.cursor,
-            upToDate: chunk.upToDate,
+            offset: self.offset,
+            cursor: self.cursor,
+            upToDate: self.upToDate,
           })
-
-          result = await reader.read()
         }
       } catch (e) {
         // Ignore errors after unsubscribe
@@ -532,16 +514,21 @@ export class StreamResponseImpl<
 
   subscribeBytes(subscriber: (chunk: ByteChunk) => Promise<void>): () => void {
     const abortController = new AbortController()
-    const byteStream = this.#createByteStream()
+    const self = this
 
     ;(async () => {
       try {
-        const reader = byteStream.getReader()
-        let result = await reader.read()
-        while (!result.done) {
+        for await (const response of self.#generateResponses()) {
           if (abortController.signal.aborted) break
-          await subscriber(result.value)
-          result = await reader.read()
+
+          const buffer = await response.arrayBuffer()
+
+          await subscriber({
+            data: new Uint8Array(buffer),
+            offset: self.offset,
+            cursor: self.cursor,
+            upToDate: self.upToDate,
+          })
         }
       } catch (e) {
         if (!abortController.signal.aborted) throw e
@@ -556,23 +543,21 @@ export class StreamResponseImpl<
 
   subscribeText(subscriber: (chunk: TextChunk) => Promise<void>): () => void {
     const abortController = new AbortController()
-    const decoder = new TextDecoder()
-    const byteStream = this.#createByteStream()
+    const self = this
 
     ;(async () => {
       try {
-        const reader = byteStream.getReader()
-        let result = await reader.read()
-        while (!result.done) {
+        for await (const response of self.#generateResponses()) {
           if (abortController.signal.aborted) break
-          const chunk = result.value
+
+          const text = await response.text()
+
           await subscriber({
-            text: decoder.decode(chunk.data, { stream: true }),
-            offset: chunk.offset,
-            cursor: chunk.cursor,
-            upToDate: chunk.upToDate,
+            text,
+            offset: self.offset,
+            cursor: self.cursor,
+            upToDate: self.upToDate,
           })
-          result = await reader.read()
         }
       } catch (e) {
         if (!abortController.signal.aborted) throw e
