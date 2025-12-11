@@ -2588,6 +2588,294 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
         }
       }
     })
+
+    test(`should have correct SSE headers (no Content-Length, proper Cache-Control)`, async () => {
+      const streamPath = `/v1/stream/sse-headers-test-${Date.now()}`
+
+      // Create stream with data
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+        body: `test data`,
+      })
+
+      // Make SSE request
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 1000)
+
+      try {
+        const response = await fetch(
+          `${getBaseUrl()}${streamPath}?offset=-1&live=sse`,
+          {
+            method: `GET`,
+            signal: controller.signal,
+          }
+        )
+
+        expect(response.status).toBe(200)
+
+        // SSE MUST have text/event-stream content type
+        expect(response.headers.get(`content-type`)).toBe(`text/event-stream`)
+
+        // SSE MUST NOT have Content-Length (it's a streaming response)
+        expect(response.headers.get(`content-length`)).toBeNull()
+
+        // SSE SHOULD have Cache-Control: no-cache to prevent proxy buffering
+        const cacheControl = response.headers.get(`cache-control`)
+        expect(cacheControl).toContain(`no-cache`)
+
+        clearTimeout(timeoutId)
+      } catch (e) {
+        clearTimeout(timeoutId)
+        if (e instanceof Error && e.name !== `AbortError`) {
+          throw e
+        }
+      }
+    })
+
+    test(`should handle newlines in text/plain payloads`, async () => {
+      const streamPath = `/v1/stream/sse-newline-test-${Date.now()}`
+
+      // Create stream with text containing newlines
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+        body: `line1\nline2\nline3`,
+      })
+
+      // Make SSE request
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 2000)
+
+      try {
+        const response = await fetch(
+          `${getBaseUrl()}${streamPath}?offset=-1&live=sse`,
+          {
+            method: `GET`,
+            signal: controller.signal,
+          }
+        )
+
+        expect(response.status).toBe(200)
+
+        // Read response
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let received = ``
+
+        for (let i = 0; i < 10; i++) {
+          const { done, value } = await reader.read()
+          if (done) break
+          received += decoder.decode(value, { stream: true })
+          if (received.includes(`event: control`)) break
+        }
+
+        clearTimeout(timeoutId)
+        reader.cancel()
+
+        // The SSE data field should contain the text
+        // Note: SSE spec says newlines in data need multiple data: lines
+        // or the newlines become field separators
+        expect(received).toContain(`event: data`)
+
+        // At minimum, the original content should be recoverable
+        // (server may encode newlines as multiple data: lines per SSE spec)
+        const hasLine1 = received.includes(`line1`)
+        const hasLine2 = received.includes(`line2`)
+        const hasLine3 = received.includes(`line3`)
+        expect(hasLine1 && hasLine2 && hasLine3).toBe(true)
+      } catch (e) {
+        clearTimeout(timeoutId)
+        if (e instanceof Error && e.name !== `AbortError`) {
+          throw e
+        }
+      }
+    })
+
+    test(`should maintain monotonic offsets over multiple messages`, async () => {
+      const streamPath = `/v1/stream/sse-monotonic-offset-test-${Date.now()}`
+
+      // Create stream
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+      })
+
+      // Append multiple messages
+      for (let i = 0; i < 5; i++) {
+        await fetch(`${getBaseUrl()}${streamPath}`, {
+          method: `POST`,
+          headers: { "Content-Type": `text/plain` },
+          body: `message ${i}`,
+        })
+      }
+
+      // Make SSE request
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 2000)
+
+      try {
+        const response = await fetch(
+          `${getBaseUrl()}${streamPath}?offset=-1&live=sse`,
+          {
+            method: `GET`,
+            signal: controller.signal,
+          }
+        )
+
+        expect(response.status).toBe(200)
+
+        // Read response
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let received = ``
+
+        for (let i = 0; i < 20; i++) {
+          const { done, value } = await reader.read()
+          if (done) break
+          received += decoder.decode(value, { stream: true })
+          // Wait until we've seen at least 5 data events and a control
+          const dataCount = (received.match(/event: data/g) || []).length
+          if (dataCount >= 5 && received.includes(`event: control`)) break
+        }
+
+        clearTimeout(timeoutId)
+        reader.cancel()
+
+        // Extract all control event offsets
+        const controlLines = received
+          .split(`\n`)
+          .filter(
+            (l) => l.startsWith(`data: `) && l.includes(`Stream-Next-Offset`)
+          )
+
+        const offsets: Array<string> = []
+        for (const line of controlLines) {
+          const payload = line.slice(`data: `.length)
+          const data = JSON.parse(payload)
+          offsets.push(data[`Stream-Next-Offset`])
+        }
+
+        // Verify offsets are monotonically increasing (lexicographically)
+        for (let i = 1; i < offsets.length; i++) {
+          expect(offsets[i]! >= offsets[i - 1]!).toBe(true)
+        }
+      } catch (e) {
+        clearTimeout(timeoutId)
+        if (e instanceof Error && e.name !== `AbortError`) {
+          throw e
+        }
+      }
+    })
+
+    test(`should support reconnection with last known offset`, async () => {
+      const streamPath = `/v1/stream/sse-reconnect-test-${Date.now()}`
+
+      // Create stream with initial data
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `PUT`,
+        headers: { "Content-Type": `text/plain` },
+        body: `message 1`,
+      })
+
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `POST`,
+        headers: { "Content-Type": `text/plain` },
+        body: `message 2`,
+      })
+
+      // First SSE connection - get initial data and offset
+      const controller1 = new AbortController()
+      const timeoutId1 = setTimeout(() => controller1.abort(), 2000)
+
+      let lastOffset: string | null = null
+
+      try {
+        const response1 = await fetch(
+          `${getBaseUrl()}${streamPath}?offset=-1&live=sse`,
+          {
+            method: `GET`,
+            signal: controller1.signal,
+          }
+        )
+
+        const reader1 = response1.body!.getReader()
+        const decoder = new TextDecoder()
+        let received1 = ``
+
+        for (let i = 0; i < 10; i++) {
+          const { done, value } = await reader1.read()
+          if (done) break
+          received1 += decoder.decode(value, { stream: true })
+          if (received1.includes(`event: control`)) break
+        }
+
+        clearTimeout(timeoutId1)
+        reader1.cancel()
+
+        // Extract offset from control event
+        const controlLine = received1
+          .split(`\n`)
+          .find(
+            (l) => l.startsWith(`data: `) && l.includes(`Stream-Next-Offset`)
+          )
+        const controlPayload = controlLine!.slice(`data: `.length)
+        lastOffset = JSON.parse(controlPayload)[`Stream-Next-Offset`]
+      } catch (e) {
+        clearTimeout(timeoutId1)
+        if (e instanceof Error && e.name !== `AbortError`) {
+          throw e
+        }
+      }
+
+      expect(lastOffset).toBeDefined()
+
+      // Append more data while "disconnected"
+      await fetch(`${getBaseUrl()}${streamPath}`, {
+        method: `POST`,
+        headers: { "Content-Type": `text/plain` },
+        body: `message 3`,
+      })
+
+      // Reconnect with last known offset
+      const controller2 = new AbortController()
+      const timeoutId2 = setTimeout(() => controller2.abort(), 2000)
+
+      try {
+        const response2 = await fetch(
+          `${getBaseUrl()}${streamPath}?offset=${lastOffset}&live=sse`,
+          {
+            method: `GET`,
+            signal: controller2.signal,
+          }
+        )
+
+        const reader2 = response2.body!.getReader()
+        const decoder = new TextDecoder()
+        let received2 = ``
+
+        for (let i = 0; i < 10; i++) {
+          const { done, value } = await reader2.read()
+          if (done) break
+          received2 += decoder.decode(value, { stream: true })
+          if (received2.includes(`message 3`)) break
+        }
+
+        clearTimeout(timeoutId2)
+        reader2.cancel()
+
+        // Should receive message 3 (the new one), not duplicates of 1 and 2
+        expect(received2).toContain(`message 3`)
+        // Should NOT contain message 1 or 2 (already received before disconnect)
+        expect(received2).not.toContain(`message 1`)
+        expect(received2).not.toContain(`message 2`)
+      } catch (e) {
+        clearTimeout(timeoutId2)
+        if (e instanceof Error && e.name !== `AbortError`) {
+          throw e
+        }
+      }
+    })
   })
 
   // ============================================================================
