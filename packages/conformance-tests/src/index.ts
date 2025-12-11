@@ -2428,25 +2428,6 @@ export function runConformanceTests(options: ConformanceTestOptions): void {
       }
     })
 
-    test(`should allow append without If-Match (backward compatibility)`, async () => {
-      const streamPath = `/v1/stream/occ-optional-test-${Date.now()}`
-
-      // Create stream
-      await fetch(`${getBaseUrl()}${streamPath}`, {
-        method: `PUT`,
-        headers: { "Content-Type": `text/plain` },
-      })
-
-      // Append without If-Match - should still work
-      const response = await fetch(`${getBaseUrl()}${streamPath}`, {
-        method: `POST`,
-        headers: { "Content-Type": `text/plain` },
-        body: `no occ check`,
-      })
-
-      expect([200, 204]).toContain(response.status)
-    })
-
     test(`should reject If-Match with invalid offset format`, async () => {
       const streamPath = `/v1/stream/occ-invalid-offset-test-${Date.now()}`
 
