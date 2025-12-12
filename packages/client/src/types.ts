@@ -427,10 +427,15 @@ export type RetryOpts = {
  * Called when a recoverable error occurs during streaming.
  *
  * **Return value behavior** (following Electric client pattern):
- * - Return `{}` to retry with the same params/headers
- * - Return `{ params }` to retry with merged params (existing params are preserved)
- * - Return `{ headers }` to retry with merged headers (existing headers are preserved)
- * - Return `void`/`undefined` to stop the stream and propagate the error
+ * - Return `{}` (empty object) → Retry immediately with same params/headers
+ * - Return `{ params }` → Retry with merged params (existing params preserved)
+ * - Return `{ headers }` → Retry with merged headers (existing headers preserved)
+ * - Return `void` or `undefined` → Stop stream and propagate the error
+ * - Return `null` → INVALID (will cause error - use `{}` instead)
+ *
+ * **Important**: To retry, you MUST return an object (can be empty `{}`).
+ * Returning nothing (`void`), explicitly returning `undefined`, or omitting
+ * a return statement all stop the stream. Do NOT return `null`.
  *
  * Note: Automatic retries with exponential backoff are already applied
  * for 5xx server errors, network errors, and 429 rate limits before
@@ -438,16 +443,24 @@ export type RetryOpts = {
  *
  * @example
  * ```typescript
- * // Retry on any error
+ * // Retry on any error (returns empty object)
  * onError: (error) => ({})
  *
- * // Refresh auth token on 401
+ * // Refresh auth token on 401, propagate other errors
  * onError: async (error) => {
  *   if (error instanceof FetchError && error.status === 401) {
  *     const newToken = await refreshAuthToken()
  *     return { headers: { Authorization: `Bearer ${newToken}` } }
  *   }
- *   // Don't retry other errors
+ *   // Implicitly returns undefined - error will propagate
+ * }
+ *
+ * // Conditionally retry with explicit propagation
+ * onError: (error) => {
+ *   if (shouldRetry(error)) {
+ *     return {} // Retry
+ *   }
+ *   return undefined // Explicitly propagate error
  * }
  * ```
  */
