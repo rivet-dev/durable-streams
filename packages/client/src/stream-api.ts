@@ -208,8 +208,9 @@ async function streamInternal<TJson = unknown>(
       nextUrl.searchParams.set(`cursor`, cursor)
     }
 
-    // Add custom params
-    for (const [key, value] of Object.entries(params)) {
+    // Resolve params per-request (for dynamic values)
+    const nextParams = await resolveParams(options.params)
+    for (const [key, value] of Object.entries(nextParams)) {
       nextUrl.searchParams.set(key, value)
     }
 
@@ -243,8 +244,9 @@ async function streamInternal<TJson = unknown>(
             sseUrl.searchParams.set(`cursor`, cursor)
           }
 
-          // Add custom params
-          for (const [key, value] of Object.entries(params)) {
+          // Resolve params per-request (for dynamic values)
+          const sseParams = await resolveParams(options.params)
+          for (const [key, value] of Object.entries(sseParams)) {
             sseUrl.searchParams.set(key, value)
           }
 
