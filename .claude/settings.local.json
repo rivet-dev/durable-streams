@@ -28,7 +28,11 @@
       "Bash(pnpm --filter @durable-streams/test-ui build:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(pnpm --filter @durable-streams/writer build:*)"
+      "Bash(pnpm --filter @durable-streams/writer build:*)",
+      "Bash(cat:*)",
+      "Bash(pnpm format:*)",
+      "Bash(pnpm format:check:*)",
+      "Bash(pnpm --filter @durable-streams/client test:run:*)"
     ],
     "deny": [],
     "ask": []

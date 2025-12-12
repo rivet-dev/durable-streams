@@ -3,26 +3,26 @@
  * Verifies backoffOptions are respected and integrate with onError
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { stream } from "../src/stream-api"
 import { DurableStream } from "../src/stream"
 import { FetchError } from "../src/error"
 
-describe("backoff integration", () => {
+describe(`backoff integration`, () => {
   let mockFetch: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     mockFetch = vi.fn()
   })
 
-  it("should respect custom backoffOptions", async () => {
+  it(`should respect custom backoffOptions`, async () => {
     let attempts = 0
     mockFetch.mockImplementation(() => {
       attempts++
       return Promise.resolve(
         new Response(null, {
           status: 500,
-          statusText: "Internal Server Error",
+          statusText: `Internal Server Error`,
         })
       )
     })
@@ -31,7 +31,7 @@ describe("backoff integration", () => {
 
     await expect(
       stream({
-        url: "https://example.com/stream",
+        url: `https://example.com/stream`,
         fetchClient: mockFetch,
         backoffOptions: {
           maxRetries,
@@ -46,11 +46,11 @@ describe("backoff integration", () => {
     expect(attempts).toBe(maxRetries + 1)
   })
 
-  it("should call onError after backoff exhausts for 5xx errors", async () => {
+  it(`should call onError after backoff exhausts for 5xx errors`, async () => {
     mockFetch.mockResolvedValue(
       new Response(null, {
         status: 500,
-        statusText: "Internal Server Error",
+        statusText: `Internal Server Error`,
       })
     )
 
@@ -58,7 +58,7 @@ describe("backoff integration", () => {
 
     await expect(
       stream({
-        url: "https://example.com/stream",
+        url: `https://example.com/stream`,
         fetchClient: mockFetch,
         backoffOptions: {
           maxRetries: 2,
@@ -76,11 +76,11 @@ describe("backoff integration", () => {
     expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
-  it("should NOT retry 4xx errors with backoff (calls onError immediately)", async () => {
+  it(`should NOT retry 4xx errors with backoff (calls onError immediately)`, async () => {
     mockFetch.mockResolvedValue(
       new Response(null, {
         status: 400,
-        statusText: "Bad Request",
+        statusText: `Bad Request`,
       })
     )
 
@@ -88,7 +88,7 @@ describe("backoff integration", () => {
 
     await expect(
       stream({
-        url: "https://example.com/stream",
+        url: `https://example.com/stream`,
         fetchClient: mockFetch,
         backoffOptions: {
           maxRetries: 5, // Should not retry 4xx
@@ -105,21 +105,21 @@ describe("backoff integration", () => {
     expect(mockFetch).toHaveBeenCalledOnce()
   })
 
-  it("should retry 429 rate limit errors with backoff", async () => {
+  it(`should retry 429 rate limit errors with backoff`, async () => {
     let attempts = 0
     mockFetch.mockImplementation(() => {
       attempts++
       return Promise.resolve(
         new Response(null, {
           status: 429,
-          statusText: "Too Many Requests",
+          statusText: `Too Many Requests`,
         })
       )
     })
 
     await expect(
       stream({
-        url: "https://example.com/stream",
+        url: `https://example.com/stream`,
         fetchClient: mockFetch,
         backoffOptions: {
           maxRetries: 2,
@@ -134,20 +134,20 @@ describe("backoff integration", () => {
     expect(attempts).toBe(3) // initial + 2 retries
   })
 
-  it("should use handle-level backoffOptions for stream() reads", async () => {
+  it(`should use handle-level backoffOptions for stream() reads`, async () => {
     let attempts = 0
     mockFetch.mockImplementation(() => {
       attempts++
       return Promise.resolve(
         new Response(null, {
           status: 500,
-          statusText: "Internal Server Error",
+          statusText: `Internal Server Error`,
         })
       )
     })
 
     const handle = new DurableStream({
-      url: "https://example.com/stream",
+      url: `https://example.com/stream`,
       fetch: mockFetch,
       backoffOptions: {
         maxRetries: 2,
@@ -163,17 +163,17 @@ describe("backoff integration", () => {
     expect(attempts).toBe(3) // initial + 2 retries
   })
 
-  it("should disable retries when maxRetries is 0", async () => {
+  it(`should disable retries when maxRetries is 0`, async () => {
     mockFetch.mockResolvedValue(
       new Response(null, {
         status: 500,
-        statusText: "Internal Server Error",
+        statusText: `Internal Server Error`,
       })
     )
 
     await expect(
       stream({
-        url: "https://example.com/stream",
+        url: `https://example.com/stream`,
         fetchClient: mockFetch,
         backoffOptions: {
           maxRetries: 0,
@@ -188,7 +188,7 @@ describe("backoff integration", () => {
     expect(mockFetch).toHaveBeenCalledOnce()
   })
 
-  it("should respect Retry-After header", async () => {
+  it(`should respect Retry-After header`, async () => {
     const startTime = Date.now()
     let attempts = 0
 
@@ -198,9 +198,9 @@ describe("backoff integration", () => {
         return Promise.resolve(
           new Response(null, {
             status: 429,
-            statusText: "Too Many Requests",
+            statusText: `Too Many Requests`,
             headers: {
-              "Retry-After": "1", // 1 second
+              "Retry-After": `1`, // 1 second
             },
           })
         )
@@ -209,15 +209,15 @@ describe("backoff integration", () => {
         new Response(JSON.stringify([]), {
           status: 200,
           headers: {
-            "content-type": "application/json",
-            "Stream-Next-Offset": "1",
+            "content-type": `application/json`,
+            "Stream-Next-Offset": `1`,
           },
         })
       )
     })
 
     await stream({
-      url: "https://example.com/stream",
+      url: `https://example.com/stream`,
       fetchClient: mockFetch,
       backoffOptions: {
         maxRetries: 5,
@@ -234,7 +234,7 @@ describe("backoff integration", () => {
     expect(attempts).toBe(2)
   })
 
-  it("should allow onError to recover after backoff exhausts", async () => {
+  it(`should allow onError to recover after backoff exhausts`, async () => {
     let attempts = 0
     mockFetch.mockImplementation(() => {
       attempts++
@@ -243,7 +243,7 @@ describe("backoff integration", () => {
         return Promise.resolve(
           new Response(null, {
             status: 500,
-            statusText: "Internal Server Error",
+            statusText: `Internal Server Error`,
           })
         )
       }
@@ -251,8 +251,8 @@ describe("backoff integration", () => {
         new Response(JSON.stringify([]), {
           status: 200,
           headers: {
-            "content-type": "application/json",
-            "Stream-Next-Offset": "1",
+            "content-type": `application/json`,
+            "Stream-Next-Offset": `1`,
           },
         })
       )
@@ -261,7 +261,7 @@ describe("backoff integration", () => {
     const onError = vi.fn().mockResolvedValue({})
 
     const res = await stream({
-      url: "https://example.com/stream",
+      url: `https://example.com/stream`,
       fetchClient: mockFetch,
       backoffOptions: {
         maxRetries: 1, // Only 1 retry via backoff
@@ -276,21 +276,21 @@ describe("backoff integration", () => {
     // Then onError retries once more, succeeds
     expect(attempts).toBe(3)
     expect(onError).toHaveBeenCalledOnce()
-    expect(res.url).toBe("https://example.com/stream")
+    expect(res.url).toBe(`https://example.com/stream`)
   })
 
-  it("should handle network errors with backoff", async () => {
+  it(`should handle network errors with backoff`, async () => {
     let attempts = 0
     mockFetch.mockImplementation(() => {
       attempts++
-      return Promise.reject(new Error("Network error"))
+      return Promise.reject(new Error(`Network error`))
     })
 
     const onError = vi.fn().mockResolvedValue(undefined)
 
     await expect(
       stream({
-        url: "https://example.com/stream",
+        url: `https://example.com/stream`,
         fetchClient: mockFetch,
         backoffOptions: {
           maxRetries: 2,
@@ -300,7 +300,7 @@ describe("backoff integration", () => {
         },
         onError,
       })
-    ).rejects.toThrow("Network error")
+    ).rejects.toThrow(`Network error`)
 
     // Should retry network errors
     expect(attempts).toBe(3) // initial + 2 retries
