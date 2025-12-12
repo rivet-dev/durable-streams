@@ -10,6 +10,8 @@ import type { BackoffOptions } from "./fetch"
  * Offset string - opaque to the client.
  * Format: "<read-seq>_<byte-offset>"
  *
+ * **Special value**: `-1` means "start of stream" - use this to read from the beginning.
+ *
  * Always use the returned `offset` field from reads/follows as the next `offset` you pass in.
  */
 export type Offset = string
@@ -125,7 +127,8 @@ export interface StreamOptions {
 
   /**
    * Starting offset (query param ?offset=...).
-   * If omitted, reads from the start of the stream.
+   * If omitted, defaults to "-1" (start of stream).
+   * You can also explicitly pass "-1" to read from the beginning.
    */
   offset?: Offset
 
@@ -312,7 +315,7 @@ export type LegacyLiveMode = `long-poll` | `sse`
 export interface ReadOptions {
   /**
    * Starting offset, passed as ?offset=...
-   * If omitted, reads from the start of the stream.
+   * If omitted, defaults to "-1" (start of stream).
    */
   offset?: Offset
 
