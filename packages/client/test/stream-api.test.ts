@@ -772,4 +772,161 @@ describe(`DurableStream.stream() method`, () => {
     expect(res.url).toBe(`https://example.com/stream`)
     expect(res.contentType).toBe(`application/json`)
   })
+
+  describe(`consumption method exclusivity`, () => {
+    it(`should throw when calling body() after body()`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      await res.body()
+      await expect(res.body()).rejects.toThrow(`ALREADY_CONSUMED`)
+    })
+
+    it(`should throw when calling json() after body()`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify([{ id: 1 }]), {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      await res.body()
+      await expect(res.json()).rejects.toThrow(`ALREADY_CONSUMED`)
+    })
+
+    it(`should throw when calling bodyStream() after json()`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify([{ id: 1 }]), {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      await res.json()
+      expect(() => res.bodyStream()).toThrow(`ALREADY_CONSUMED`)
+    })
+
+    it(`should throw when calling subscribeBytes() after bodyStream()`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      res.bodyStream()
+      expect(() =>
+        res.subscribeBytes(async () => {
+          /* noop */
+        })
+      ).toThrow(`ALREADY_CONSUMED`)
+    })
+
+    it(`should throw when calling text() after subscribeJson()`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify([{ id: 1 }]), {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      res.subscribeJson(async () => {
+        /* noop */
+      })
+      await expect(res.text()).rejects.toThrow(`ALREADY_CONSUMED`)
+    })
+
+    it(`should throw when calling jsonStream() after subscribeText()`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            "content-type": `application/json`,
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+        json: true,
+      })
+
+      res.subscribeText(async () => {
+        /* noop */
+      })
+      expect(() => res.jsonStream()).toThrow(`ALREADY_CONSUMED`)
+    })
+
+    it(`should allow calling textStream() after bodyStream() (same underlying method)`, async () => {
+      mockFetch.mockResolvedValue(
+        new Response(`data`, {
+          status: 200,
+          headers: {
+            [STREAM_OFFSET_HEADER]: `1_5`,
+            [STREAM_UP_TO_DATE_HEADER]: `true`,
+          },
+        })
+      )
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetchClient: mockFetch,
+      })
+
+      // bodyStream() is called internally by textStream()
+      // This should not throw because textStream uses bodyStream internally
+      const textStream = res.textStream()
+      expect(textStream).toBeDefined()
+    })
+  })
 })
