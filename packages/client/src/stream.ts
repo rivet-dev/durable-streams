@@ -141,6 +141,17 @@ export class DurableStream {
   /**
    * Validate that a stream exists and fetch metadata via HEAD.
    * Returns a handle with contentType populated (if sent by server).
+   *
+   * **Important**: This only performs a HEAD request for validation - it does
+   * NOT open a session or start reading data. To read from the stream, call
+   * `stream()` on the returned handle.
+   *
+   * @example
+   * ```typescript
+   * // Validate stream exists before reading
+   * const handle = await DurableStream.connect({ url })
+   * const res = await handle.stream() // Now actually read
+   * ```
    */
   static async connect(opts: DurableStreamOptions): Promise<DurableStream> {
     const stream = new DurableStream(opts)
