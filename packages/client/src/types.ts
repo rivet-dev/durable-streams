@@ -558,17 +558,28 @@ export interface StreamResponse<TJson = unknown> {
   // --- Evolving state as data arrives ---
 
   /**
-   * Last seen Stream-Next-Offset.
+   * The next offset to read from (Stream-Next-Offset header).
+   *
+   * **Important**: This value advances **after data is delivered to the consumer**,
+   * not just after fetching from the server. The offset represents the position
+   * in the stream that follows the data most recently provided to your consumption
+   * method (body(), json(), bodyStream(), subscriber callback, etc.).
+   *
+   * Use this for resuming reads after a disconnect or saving checkpoints.
    */
   offset: Offset
 
   /**
-   * Last seen Stream-Cursor / streamCursor.
+   * Stream cursor for CDN collapsing (stream-cursor header).
+   *
+   * Updated after each chunk is delivered to the consumer.
    */
   cursor?: string
 
   /**
-   * Last observed upToDate flag.
+   * Whether we've reached the current end of the stream (stream-up-to-date header).
+   *
+   * Updated after each chunk is delivered to the consumer.
    */
   upToDate: boolean
 
