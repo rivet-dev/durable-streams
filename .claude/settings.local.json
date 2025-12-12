@@ -32,7 +32,8 @@
       "Bash(cat:*)",
       "Bash(pnpm format:*)",
       "Bash(pnpm format:check:*)",
-      "Bash(pnpm --filter @durable-streams/client test:run:*)"
+      "Bash(pnpm --filter @durable-streams/client test:run:*)",
+      "Bash(pnpm --filter @durable-streams/conformance-tests exec tsc:*)"
     ],
     "deny": [],
     "ask": []

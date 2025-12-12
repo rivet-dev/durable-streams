@@ -32,7 +32,7 @@ describe(`backoff integration`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: {
           maxRetries,
           initialDelay: 1,
@@ -59,7 +59,7 @@ describe(`backoff integration`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: {
           maxRetries: 2,
           initialDelay: 1,
@@ -89,7 +89,7 @@ describe(`backoff integration`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: {
           maxRetries: 5, // Should not retry 4xx
           initialDelay: 1,
@@ -120,7 +120,7 @@ describe(`backoff integration`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: {
           maxRetries: 2,
           initialDelay: 1,
@@ -174,7 +174,7 @@ describe(`backoff integration`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: {
           maxRetries: 0,
           initialDelay: 0,
@@ -218,7 +218,7 @@ describe(`backoff integration`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       backoffOptions: {
         maxRetries: 5,
         initialDelay: 1,
@@ -262,7 +262,7 @@ describe(`backoff integration`, () => {
 
     const res = await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       backoffOptions: {
         maxRetries: 1, // Only 1 retry via backoff
         initialDelay: 1,
@@ -291,7 +291,7 @@ describe(`backoff integration`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: {
           maxRetries: 2,
           initialDelay: 1,

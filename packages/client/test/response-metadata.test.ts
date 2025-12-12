@@ -29,7 +29,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.headers.get(`etag`)).toBe(`abc123`)
@@ -70,7 +70,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `long-poll`,
       })
 
@@ -103,7 +103,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.headers).toBeInstanceOf(Headers)
@@ -126,7 +126,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.status).toBe(200)
@@ -165,7 +165,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `long-poll`,
       })
 
@@ -198,7 +198,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.ok).toBe(true)
@@ -218,7 +218,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.ok).toBe(true)
@@ -244,7 +244,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `long-poll`,
       })
 
@@ -276,7 +276,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       // stream() is async and awaits first response, so isLoading is false
@@ -301,7 +301,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `long-poll`,
       })
 
@@ -334,7 +334,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.headers.get(`etag`)).toBe(`test-etag`)
@@ -362,7 +362,7 @@ describe(`StreamResponse metadata`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(res.headers.get(`x-request-id`)).toBe(`abc-123`)

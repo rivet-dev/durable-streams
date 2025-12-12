@@ -28,7 +28,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: {
           Authorization: headerFn,
         },
@@ -45,7 +45,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: {
           Authorization: headerFn,
         },
@@ -63,7 +63,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: {
           Authorization: authFn,
           "X-Tenant-Id": tenantFn,
@@ -83,7 +83,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: {
           "X-Static": `static-value`,
           "X-Dynamic": dynamicFn,
@@ -104,7 +104,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         params: {
           tenant: paramFn,
         },
@@ -120,7 +120,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         params: {
           tenant: paramFn,
         },
@@ -137,7 +137,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         params: {
           tenant: tenantFn,
           region: regionFn,
@@ -156,7 +156,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         params: {
           static: `value`,
           dynamic: dynamicFn,
@@ -300,7 +300,7 @@ describe(`function-based headers and params`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: {
           Authorization: headerFn,
         },

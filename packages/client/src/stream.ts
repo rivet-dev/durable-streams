@@ -409,7 +409,7 @@ export class DurableStream {
       headers: mergedHeaders,
       params: mergedParams,
       signal: options?.signal ?? this.#options.signal,
-      fetchClient: this.#options.fetch,
+      fetch: this.#options.fetch,
       backoffOptions: this.#options.backoffOptions,
       offset: options?.offset,
       live: options?.live,

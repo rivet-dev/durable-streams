@@ -153,8 +153,7 @@ async function streamInternal<TJson = unknown>(
 
   // Get fetch client with backoff
   const baseFetchClient =
-    options.fetchClient ??
-    ((...args: Parameters<typeof fetch>) => fetch(...args))
+    options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
   const backoffOptions = options.backoffOptions ?? BackoffDefaults
   const fetchClient = createFetchWithBackoff(baseFetchClient, backoffOptions)
 

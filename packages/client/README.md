@@ -141,7 +141,7 @@ const res = await stream<TJson>({
   headers?: HeadersRecord,        // Headers (static or function-based)
   params?: ParamsRecord,          // Query params (static or function-based)
   signal?: AbortSignal,           // Cancellation
-  fetchClient?: typeof fetch,     // Custom fetch implementation
+  fetch?: typeof fetch,           // Custom fetch implementation
   backoffOptions?: BackoffOptions,// Retry backoff configuration
   offset?: Offset,                // Starting offset (default: start of stream)
   live?: LiveMode,                // Live mode (default: "auto")

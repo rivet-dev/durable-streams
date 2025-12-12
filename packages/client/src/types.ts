@@ -117,7 +117,7 @@ export interface StreamOptions {
    * Custom fetch implementation (for auth layers, proxies, etc.).
    * Defaults to globalThis.fetch.
    */
-  fetchClient?: typeof globalThis.fetch
+  fetch?: typeof globalThis.fetch
 
   /**
    * Backoff options for retry behavior.

@@ -36,7 +36,7 @@ describe(`onError handler`, () => {
 
     const res = await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       headers: { Authorization: `Bearer initial-token` },
       backoffOptions: { maxRetries: 0 }, // Disable backoff retries
       onError,
@@ -72,7 +72,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       headers: { Authorization: `Bearer expired-token` },
       backoffOptions: { maxRetries: 0 },
       onError,
@@ -112,7 +112,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       params: { tenant: `invalid-tenant` },
       backoffOptions: { maxRetries: 0 },
       onError,
@@ -152,7 +152,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       headers: { "X-Custom-Header": `should-be-preserved` },
       params: { tenant: `abc` },
       backoffOptions: { maxRetries: 0 },
@@ -194,7 +194,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       headers: { Authorization: `Bearer old-token` },
       params: { tenant: `abc`, important: `param` },
       backoffOptions: { maxRetries: 0 },
@@ -225,7 +225,7 @@ describe(`onError handler`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: { maxRetries: 0 },
         onError,
       })
@@ -265,7 +265,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       headers: { Authorization: `Bearer stale-token` },
       backoffOptions: { maxRetries: 0 },
       onError,
@@ -293,7 +293,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       onError,
     })
 
@@ -312,7 +312,7 @@ describe(`onError handler`, () => {
     await expect(
       stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         backoffOptions: { maxRetries: 0 },
       })
     ).rejects.toThrow(FetchError)
@@ -337,7 +337,7 @@ describe(`onError handler`, () => {
       await expect(
         stream({
           url: `https://example.com/stream`,
-          fetchClient: mockFetch,
+          fetch: mockFetch,
           backoffOptions: { maxRetries: 0 },
           onError,
         })
@@ -371,7 +371,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       params: { override: `old-value`, keep: `this` },
       backoffOptions: { maxRetries: 0 },
       onError,
@@ -406,7 +406,7 @@ describe(`onError handler`, () => {
 
     await stream({
       url: `https://example.com/stream`,
-      fetchClient: mockFetch,
+      fetch: mockFetch,
       headers: { Authorization: `Bearer old`, "X-Keep": `this` },
       backoffOptions: { maxRetries: 0 },
       onError,

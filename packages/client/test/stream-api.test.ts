@@ -30,7 +30,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -53,7 +53,7 @@ describe(`stream() function`, () => {
       await expect(
         stream({
           url: `https://example.com/stream`,
-          fetchClient: mockFetch,
+          fetch: mockFetch,
         })
       ).rejects.toThrow(FetchError)
     })
@@ -71,7 +71,7 @@ describe(`stream() function`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         offset: `1_5`,
       })
 
@@ -94,7 +94,7 @@ describe(`stream() function`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `long-poll`,
       })
 
@@ -121,7 +121,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       const text = await res.text()
@@ -144,7 +144,7 @@ describe(`stream() function`, () => {
 
       const res = await stream<{ id: number }>({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       const result = await res.json()
@@ -165,7 +165,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       await expect(res.json()).rejects.toThrow()
@@ -187,7 +187,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -212,7 +212,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -244,7 +244,7 @@ describe(`stream() function`, () => {
 
       const res = await stream<{ id: number }>({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -277,7 +277,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(() => res.jsonStream()).toThrow()
@@ -300,7 +300,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -330,7 +330,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -360,7 +360,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -390,7 +390,7 @@ describe(`stream() function`, () => {
 
       const res = await stream<{ id: number }>({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -420,7 +420,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       expect(() => res.subscribeJson(async () => {})).toThrow()
@@ -443,7 +443,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -474,7 +474,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       // Should not throw
@@ -507,7 +507,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -531,7 +531,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       res.cancel()
@@ -556,7 +556,7 @@ describe(`stream() function`, () => {
 
       const res = await stream<{ id: number }>({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         json: true, // Force JSON mode
         live: false,
       })
@@ -579,7 +579,7 @@ describe(`stream() function`, () => {
       await expect(
         stream({
           url: `https://example.com/stream`,
-          fetchClient: mockFetch,
+          fetch: mockFetch,
         })
       ).rejects.toThrow(FetchError)
     })
@@ -595,7 +595,7 @@ describe(`stream() function`, () => {
       await expect(
         stream({
           url: `https://example.com/stream`,
-          fetchClient: mockFetch,
+          fetch: mockFetch,
         })
       ).rejects.toThrow(FetchError)
     })
@@ -615,7 +615,7 @@ describe(`stream() function`, () => {
       // Call stream() - should resolve without consuming body
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       // At this point, only the fetch should have been called
@@ -643,7 +643,7 @@ describe(`stream() function`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         offset: `5_50`,
       })
 
@@ -667,7 +667,7 @@ describe(`stream() function`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       // Only one request should have been made
@@ -689,7 +689,7 @@ describe(`stream() function`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: { Authorization: `Bearer my-token` },
       })
 
@@ -716,7 +716,7 @@ describe(`stream() function`, () => {
 
       await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         headers: { "x-custom": `value` },
       })
 
@@ -787,7 +787,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       await res.body()
@@ -808,7 +808,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       await res.body()
@@ -829,7 +829,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       await res.json()
@@ -849,7 +849,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       res.bodyStream()
@@ -874,7 +874,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       res.subscribeJson(async () => {
@@ -897,7 +897,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         json: true,
       })
 
@@ -920,7 +920,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
       })
 
       // bodyStream() is called internally by textStream()
@@ -944,7 +944,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -980,7 +980,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `long-poll`,
       })
 
@@ -1020,7 +1020,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
@@ -1069,7 +1069,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: `auto`,
       })
 
@@ -1101,7 +1101,7 @@ describe(`DurableStream.stream() method`, () => {
 
       const res = await stream({
         url: `https://example.com/stream`,
-        fetchClient: mockFetch,
+        fetch: mockFetch,
         live: false,
       })
 
