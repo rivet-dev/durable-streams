@@ -320,4 +320,236 @@ describe(`function-based headers and params`, () => {
       expect(url.searchParams.get(`tenant`)).toBe(`tenant-123`)
     })
   })
+
+  describe(`per-request resolution in live mode`, () => {
+    it(`should call header functions on each long-poll request`, async () => {
+      let callCount = 0
+      const headerFn = vi.fn(() => {
+        callCount++
+        return `Bearer token-${callCount}`
+      })
+
+      let fetchCallCount = 0
+      mockFetch.mockReset().mockImplementation(async () => {
+        fetchCallCount++
+        if (fetchCallCount === 1) {
+          return new Response(JSON.stringify([{ id: 1 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `1`,
+            },
+          })
+        } else {
+          return new Response(JSON.stringify([{ id: 2 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `2`,
+              "Stream-Up-To-Date": `true`,
+            },
+          })
+        }
+      })
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetch: mockFetch,
+        live: `long-poll`,
+        headers: {
+          Authorization: headerFn,
+        },
+      })
+
+      // Consume with subscriber to trigger live polling
+      const items: Array<unknown> = []
+      let batchCount = 0
+      res.subscribeJson(async (batch) => {
+        batchCount++
+        items.push(...batch.items)
+        if (batchCount >= 2) {
+          res.cancel()
+        }
+      })
+
+      // Wait for both batches
+      await res.closed
+
+      // Header function should be called multiple times (per-request resolution)
+      // At least once for initial request and once for the poll
+      expect(headerFn.mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect(mockFetch.mock.calls[0][1].headers.Authorization).toMatch(
+        /^Bearer token-/
+      )
+      expect(mockFetch.mock.calls[1][1].headers.Authorization).toMatch(
+        /^Bearer token-/
+      )
+      // Verify different values were used (per-request resolution working)
+      expect(mockFetch.mock.calls[0][1].headers.Authorization).not.toBe(
+        mockFetch.mock.calls[1][1].headers.Authorization
+      )
+      expect(items).toHaveLength(2)
+    })
+
+    it(`should call param functions on each long-poll request`, async () => {
+      let callCount = 0
+      const paramFn = vi.fn(() => {
+        callCount++
+        return `tenant-${callCount}`
+      })
+
+      let fetchCallCount = 0
+      mockFetch.mockReset().mockImplementation(async () => {
+        fetchCallCount++
+        if (fetchCallCount === 1) {
+          return new Response(JSON.stringify([{ id: 1 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `1`,
+            },
+          })
+        } else {
+          return new Response(JSON.stringify([{ id: 2 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `2`,
+              "Stream-Up-To-Date": `true`,
+            },
+          })
+        }
+      })
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetch: mockFetch,
+        live: `long-poll`,
+        params: {
+          tenant: paramFn,
+        },
+      })
+
+      // Consume with subscriber to trigger live polling
+      const items: Array<unknown> = []
+      let batchCount = 0
+      res.subscribeJson(async (batch) => {
+        batchCount++
+        items.push(...batch.items)
+        if (batchCount >= 2) {
+          res.cancel()
+        }
+      })
+
+      // Wait for both batches
+      await res.closed
+
+      // Param function should be called multiple times (per-request resolution)
+      // At least once for initial request and once for the poll
+      expect(paramFn.mock.calls.length).toBeGreaterThanOrEqual(2)
+
+      const url1 = new URL(mockFetch.mock.calls[0][0])
+      const url2 = new URL(mockFetch.mock.calls[1][0])
+
+      expect(url1.searchParams.get(`tenant`)).toMatch(/^tenant-/)
+      expect(url2.searchParams.get(`tenant`)).toMatch(/^tenant-/)
+      // Verify different values were used (per-request resolution working)
+      expect(url1.searchParams.get(`tenant`)).not.toBe(
+        url2.searchParams.get(`tenant`)
+      )
+
+      expect(items).toHaveLength(2)
+    })
+
+    it(`should call both header and param functions on each poll`, async () => {
+      let headerCallCount = 0
+      let paramCallCount = 0
+
+      const headerFn = vi.fn(() => {
+        headerCallCount++
+        return `Bearer token-${headerCallCount}`
+      })
+
+      const paramFn = vi.fn(() => {
+        paramCallCount++
+        return `tenant-${paramCallCount}`
+      })
+
+      let fetchCallCount = 0
+      mockFetch.mockReset().mockImplementation(async () => {
+        fetchCallCount++
+        if (fetchCallCount === 1) {
+          return new Response(JSON.stringify([{ id: 1 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `1`,
+            },
+          })
+        } else if (fetchCallCount === 2) {
+          return new Response(JSON.stringify([{ id: 2 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `2`,
+            },
+          })
+        } else {
+          return new Response(JSON.stringify([{ id: 3 }]), {
+            status: 200,
+            headers: {
+              "content-type": `application/json`,
+              "Stream-Next-Offset": `3`,
+              "Stream-Up-To-Date": `true`,
+            },
+          })
+        }
+      })
+
+      const res = await stream({
+        url: `https://example.com/stream`,
+        fetch: mockFetch,
+        live: `long-poll`,
+        headers: {
+          Authorization: headerFn,
+        },
+        params: {
+          tenant: paramFn,
+        },
+      })
+
+      // Consume with subscriber to trigger live polling
+      const items: Array<unknown> = []
+      let batchCount = 0
+      res.subscribeJson(async (batch) => {
+        batchCount++
+        items.push(...batch.items)
+        if (batchCount >= 3) {
+          res.cancel()
+        }
+      })
+
+      // Wait for all batches
+      await res.closed
+
+      // Both functions should be called multiple times (per-request resolution)
+      // At least 3 times (initial + 2 polls)
+      expect(headerFn.mock.calls.length).toBeGreaterThanOrEqual(3)
+      expect(paramFn.mock.calls.length).toBeGreaterThanOrEqual(3)
+
+      // Verify each request had fresh/different values (per-request resolution working)
+      const authValues = new Set()
+      const tenantValues = new Set()
+      for (let i = 0; i < 3; i++) {
+        authValues.add(mockFetch.mock.calls[i][1].headers.Authorization)
+        const url = new URL(mockFetch.mock.calls[i][0])
+        tenantValues.add(url.searchParams.get(`tenant`))
+      }
+      // All 3 requests should have different auth tokens and tenant values
+      expect(authValues.size).toBe(3)
+      expect(tenantValues.size).toBe(3)
+
+      expect(items).toHaveLength(3)
+    })
+  })
 })
